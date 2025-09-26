@@ -24,6 +24,8 @@ def run_ms2rescore(pin_folder, mzml_folder, output_folder):
         mzml_map[key] = str(mzml_file)
 
     for pin_file in pin_files:
+        if 'edited' in pin_file.name:
+            continue
         print(pin_file.stem)
         file_data = list(open(pin_file))
         pep_col_idx = -1
@@ -105,7 +107,7 @@ def run_ms2rescore(pin_folder, mzml_folder, output_folder):
         psm_list.to_csv(save_path, index=False)
 
 if __name__ == '__main__':
-    pin_folder = Path('/mnt/d/workspace/mhc-validator-2/data/JY_1_10_25M/raw')
-    mzml_folder = Path('/mnt/d/workspace/mhc-validator-2/data/JY_1_10_25M/raw')
-    output_folder = Path('/mnt/d/workspace/mhc-validator-2/experiment/JY_1_10_25M/ms2rescore')
+    pin_folder = Path('/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/pin')
+    mzml_folder = Path('/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mzml')
+    output_folder = Path('/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/ms2rescore')
     run_ms2rescore(pin_folder, mzml_folder, output_folder)

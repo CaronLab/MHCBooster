@@ -9,17 +9,6 @@ from pyteomics.parser import length
 from mhcbooster.utils.peptide import replace_uncommon_aas, remove_charge, remove_previous_and_next_aa, remove_modifications
 from mhcbooster.predictors.netmhcpan_helper import NetMHCpanHelper
 
-N_THREADS = os.cpu_count() // 2
-
-ALLELES = ['HLA-A0201', 'HLA-B0702', 'HLA-C0702']
-# ALLELES = ['HLA-A0101', 'HLA-A0202', 'HLA-B5701', 'HLA-B4403', 'HLA-C0602', 'HLA-C1602']
-# ALLELES = ['HLA-A0101', 'HLA-A2415', 'HLA-B5701', 'HLA-C0602']
-# ALLELES = ['HLA-A0301', 'HLA-A6802', 'HLA-B0702', 'HLA-B1402', 'HLA-C0702', 'HLA-C0802']
-
-MIN_LENGTH = 8
-MAX_LENGTH = 15
-# MIN_LENGTH = 9
-# MAX_LENGTH = 25
 
 def run_netmhcpan(peptides):
     # netmhcpan = NetMHCpanHelper(peptides=peptides, alleles=ALLELES, n_threads=N_THREADS)
@@ -182,8 +171,22 @@ def eval_mhcbooster(folder):
 
 if __name__ == '__main__':
 
-    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JPST002044/dda/percolator')
-    eval_ms2rescore(folder='/mnt/d/workspace/mhc-booster/experiment/JPST002044/dda/ms2rescore')
-    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JPST002044/dda/fragpipe')
-    eval_mhcvalidator(folder='/mnt/d/workspace/mhc-booster/experiment/JPST002044/dda/mhcvalidator')
-    eval_mhcbooster(folder='/mnt/d/workspace/mhc-booster/experiment/JPST002044/dda/mhcbooster')
+    N_THREADS = os.cpu_count() // 2
+
+    # ALLELES = ['HLA-A0201', 'HLA-B0702', 'HLA-C0702']
+    ALLELES = ['HLA-A0220','HLA-A6801','HLA-B3503','HLA-B3901','HLA-C0401','HLA-C0702']
+    # ALLELES = ['HLA-A0101', 'HLA-A0202', 'HLA-B5701', 'HLA-B4403', 'HLA-C0602', 'HLA-C1602']
+    # ALLELES = ['HLA-A0101', 'HLA-A2415', 'HLA-B5701', 'HLA-C0602']
+    # ALLELES = ['HLA-A0301', 'HLA-A6802', 'HLA-B0702', 'HLA-B1402', 'HLA-C0702', 'HLA-C0802']
+
+    MIN_LENGTH = 8
+    MAX_LENGTH = 15
+    # MIN_LENGTH = 9
+    # MAX_LENGTH = 25
+
+    # eval_mokapot(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mokapot')
+    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/percolator')
+    # eval_ms2rescore(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/ms2rescore')
+    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/fragpipe')
+    # eval_mhcvalidator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mhcvalidator')
+    eval_mhcbooster(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/mhcbooster')

@@ -211,6 +211,7 @@ class MHCBooster:
             self.peptides_with_mods = list(self.raw_data[peptide_column])
         elif filetype == 'pin':
             self.peptides_with_mods = list(self.raw_data['Peptide'])
+            peptide_column = 'Peptide'
         #elif filetype == 'mzid':
         #    self.peptides = list(self.raw_data['PeptideSequence'])
         #elif filetype == 'spectromine':
@@ -218,8 +219,10 @@ class MHCBooster:
         else:
             if 'peptide' in self.raw_data.columns:
                 self.peptides_with_mods = list(self.raw_data['peptide'])
+                peptide_column = 'peptide'
             elif 'Peptide' in self.raw_data.columns:
                 self.peptides_with_mods = list(self.raw_data['Peptide'])
+                peptide_column = 'Peptide'
             else:
                 raise IndexError('Peptide field could not be automatically found. Please indicate the column '
                                  'containing the peptide sequences')
@@ -245,33 +248,40 @@ class MHCBooster:
         max_qs_threshold = 0.01
         min_points = 100
 
-        if 'lnExpect' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['lnExpect'].astype(float), self.labels, higher_better=False)
-        elif 'log10_evalue' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['log10_evalue'].astype(float), self.labels, higher_better=False)
-        elif 'ln(hyperscore)' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['ln(hyperscore)'].astype(float), self.labels, higher_better=True)
-        elif 'hyperscore' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['hyperscore'].astype(float), self.labels, higher_better=True)
-        elif 'Final_Score' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['Final_Score'].astype(float), self.labels, higher_better=False)
-        elif 'qvalue' in self.raw_data.columns:
-            qs = calculate_qs(self.raw_data['qvalue'].astype(float), self.labels, higher_better=False)
+        score_candidates = [('lnExpect', False), ('log10_evalue', False), ('ln(hyperscore)', True),
+                            ('hyperscore', True), ('Final_Score', False), ('qvalue', False)]
+        score_column, higher_better = None, None
+        for col, flag in score_candidates:
+            if col in self.raw_data.columns:
+                score_column = col
+                higher_better = flag
+                break
+
+        if score_column is not None:
+            qs = calculate_qs(self.raw_data[score_column].astype(float), self.labels, higher_better=higher_better)
         else:
             qs = None
             print('lnExpect or log10_evalue score cannot be found from input files. Processing without calibration!')
 
+        mask = self.raw_data[score_column] == self.raw_data.groupby(peptide_column)[score_column].transform('min')
         if qs is not None and len(qs) > min_points:
-            high_prob_indices = qs < qs_threshold
+            high_prob_indices = (qs <= qs_threshold) & mask
             if np.sum(high_prob_indices) >= min_points:
                 self.high_prob_indices = high_prob_indices
             else:
-                tmp_qs_threshold = np.sort(qs)[min_points]
-                if tmp_qs_threshold < max_qs_threshold:
-                    self.high_prob_indices = qs <= tmp_qs_threshold
-                    print(f'Not enough PSMs for calibration. Relaxed the high confidence q-value threshold to {tmp_qs_threshold}')
-                else:
+                sorted_indices = np.argsort(qs)
+                true_indices = np.flatnonzero(mask.iloc[sorted_indices])
+                if len(true_indices) < min_points:
                     print('Not enough PSMs for calibration. Processing without calibration!')
+                else:
+                    qs_threshold = qs[sorted_indices][true_indices[min_points - 1]]
+                    if qs_threshold < max_qs_threshold:
+                        self.high_prob_indices = (qs <= qs_threshold) & mask
+                        print(f'Not enough PSMs for calibration. Relaxed the high confidence q-value threshold to {qs_threshold}')
+                    else:
+                        print('Not enough PSMs for calibration. Processing without calibration!')
+        else:
+            print('Not enough PSMs for calibration. Processing without calibration!')
 
         print(f'Loaded {len(self.peptides)} PSMs, including {np.sum(self.high_prob_indices)} high confidence PSMs.')
 

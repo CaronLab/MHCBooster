@@ -53,7 +53,7 @@ def get_rt_ccs_ms2_from_mzml(mzml_path, scan_nrs, masses, charges):
     timsconvert_mzml = False
     for line in open(mzml_path):
         if line.strip().startswith('<software '):
-            if 'timsconvert' in line:
+            if 'timsconvert' in line or 'tdf2mzml' in line:
                 timsconvert_mzml = True
         if line.strip() == '</softwareList>':
             break

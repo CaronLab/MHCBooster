@@ -13,6 +13,7 @@ class Evaluation:
         self.result_folder = Path(__file__).parent/dataset_name
         self.min_len = min_len
         self.max_len = max_len
+        self.sequences = set()
 
     def base_eval_pep(self, folder, pep_file_suffix, sep, pep_col, qvalue_col, label_col=None, target_label=None, mod_col=None):
         paths = list(Path(folder).rglob(pattern='*' + pep_file_suffix))
@@ -37,7 +38,7 @@ class Evaluation:
             if qvalue_col:
                 pep_df = pep_df[pep_df[qvalue_col] <= FDR]
 
-            # prot_col = 'proteinIds' if 'proteinIds' in pep_df.columns else 'protein'
+            # prot_col = 'proteinIds' if 'proteinIds' in pep_df.columns else 'protein' if 'protein' in pep_df.columns else 'Proteins'
             # pep_df = pep_df[pep_df[prot_col].str.contains('EBV') & ~pep_df[prot_col].str.contains('HUMAN')]
 
             peptides = pep_df[pep_col].to_numpy()
@@ -56,6 +57,10 @@ class Evaluation:
                 pep_filtered = pep_filtered[
                     (np.char.str_len(pep_filtered) >= self.min_len) * (np.char.str_len(pep_filtered) <= self.max_len)]
             result_stat.loc[i] = [filename, len(pep_filtered), len(np.unique(pep_filtered))]
+            self.sequences.update(pep_filtered)
+        print(len(self.sequences))
+        print(','.join(self.sequences))
+        self.sequences.clear()
         return result_stat
 
     def eval_mokapot(self):
@@ -128,42 +133,62 @@ class Evaluation:
             result_df.columns = ['File name', 'mhcvalidator_pep', 'mhcvalidator_seq']
             return result_df
 
-    def eval_mhcbooster(self):
-        mhcbooster_folder = self.result_folder / 'mhcbooster'
+    def eval_mhcbooster(self, folder='mhcbooster'):
+        mhcbooster_folder = self.result_folder / folder
         if mhcbooster_folder.exists():
             result_df = self.base_eval_pep(mhcbooster_folder, pep_file_suffix='peptide.tsv', sep='\t',
                                            pep_col='peptide',
                                            qvalue_col='pep_qvalue', label_col='label', target_label='Target',
                                            mod_col=None)
-            result_df.columns = ['File name', 'mhcbooster_pep', 'mhcbooster_seq']
+            result_df.columns = ['File name', f'{folder}_pep', f'{folder}_seq']
             return result_df
 
     def run(self):
-        percolator_df = self.eval_percolator()
-        philosopher_df = self.eval_philosopher()
-        mokapot_df = self.eval_mokapot()
-        ms2rescore_df = self.eval_ms2rescore()
-        fragpipe_df = self.eval_fragpipe()
-        mhcvalidator_df = self.eval_mhcvalidator()
+        result_dfs = []
+        result_dfs.append(self.eval_percolator())
+        # philosopher_df = self.eval_philosopher()
+        # mokapot_df = self.eval_mokapot()
+        # ms2rescore_df = self.eval_ms2rescore()
+        result_dfs.append(self.eval_fragpipe())
+        # result_dfs.append(self.eval_mhcvalidator())
         # mhcbooster_df = self.eval_mhcbooster_old()
         # if mhcbooster_df is None or mhcbooster_df.empty:
         #     mhcbooster_df = self.eval_mhcbooster()
-        mhcbooster_df = self.eval_mhcbooster()
-        result_dfs = [percolator_df, philosopher_df, mokapot_df, ms2rescore_df, fragpipe_df, mhcvalidator_df, mhcbooster_df]
+        # result_dfs.append(self.eval_mhcbooster(folder='mhcvalidator'))
+        result_dfs.append(self.eval_mhcbooster(folder='mhcbooster'))
+        # result_dfs.append(self.eval_mhcbooster(folder='mhcbooster_nomhc'))
 
         result_df = pd.DataFrame()
         for df in result_dfs:
             if df is not None:
                 result_df = pd.merge(result_df, df, on='File name', how='outer') if not result_df.empty else df
+        # result_df.to_csv(os.path.join(self.result_folder, 'result_stats.tsv'), sep='\t', index=False)
         result_df.to_csv(os.path.join(self.result_folder, 'result_stats.tsv'), sep='\t', index=False)
-        # result_df.to_csv(os.path.join(self.result_folder, 'result_stats_EBV.tsv'), sep='\t', index=False)
         print(result_df)
 
 if __name__ == '__main__':
     FDR = 0.01
-    # evaluation = Evaluation('PXD019643/HLA-II/dda', min_len=8, max_len=15)
-    evaluation = Evaluation('PXD019643/HLA-II/ddaplus', min_len=13, max_len=25)
+    # evaluation = Evaluation('JY_low_microIP_I', min_len=8, max_len=14)
+    # evaluation = Evaluation('RA_Fractionation', min_len=8, max_len=15)
+    # evaluation = Evaluation('JY_100K', min_len=8, max_len=15)
+    evaluation = Evaluation('JY_1_10_25M_rerun/msfragger', min_len=8, max_len=14)
+    # evaluation.result_folder = Path('/mnt/d/data/JY_500M/old')
+    # evaluation.result_folder = Path('/mnt/d/data/JY_500M/new')
+    # evaluation.result_folder = Path('/mnt/d/data/JY100M_Val_DDA_102824')
+    # evaluation = Evaluation('JY_Fractionation', min_len=8, max_len=15)
+    # evaluation.result_folder = Path('/mnt/d/data/JY_PC-9_50M_ClassI_MS_DDA')
+    # evaluation.result_folder = Path('/mnt/d/data/JY_EL4_Class1_DDA_SK_MS_013125')
+    # evaluation = Evaluation('RA_Fractionation', min_len=8, max_len=15)
+    # evaluation.min_len = 12
+    # evaluation.max_len = 21
+    # evaluation.result_folder = Path('/mnt/e/data/BigIP_JY_500M_HLA-I')
+    evaluation.result_folder = Path('/mnt/e/data/PXD058436')
+    # evaluation.eval_percolator()
+    # evaluation.eval_fragpipe()
+    # evaluation.eval_mhcbooster()
     evaluation.run()
+    # print(evaluation.eval_mhcbooster('test_alpha2_rt'))
+    # print(evaluation.eval_mhcbooster('test_alpha2_rt_re'))
     # evaluation = Evaluation('PXD019643/HLA-I', min_len=8, max_len=15)
     # evaluation.run()
     # evaluation = Evaluation('RA_Fractionation_Replicate_1', min_len=8, max_len=15)
