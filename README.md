@@ -17,6 +17,7 @@ MHCBooster features a graphical user interface and is also available via command
 ```terminal
 # create a conda environment for MHCBooster
 conda create -n mhcbooster python==3.10
+conda activate mhcbooster
 
 # install MHCBooster
 pip install mhcbooster==2.1.2
