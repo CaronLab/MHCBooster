@@ -117,6 +117,31 @@ def clean_peptide_sequences(peptides: List[str]) -> List[str]:
     return remove_modifications(remove_previous_and_next_aa(peptides))
 
 
+def extract_mods(peptide):
+    mods = []
+    MOD_PATTERN = re.compile(r'([A-Za-z])\s*\[([+-]?\d+(?:\.\d+)?)\]')
+    for m in MOD_PATTERN.finditer(peptide):
+        residue = m.group(1)
+        mass = m.group(2)
+        if residue == 'n':
+            mods.append(f'N-term({mass})')
+        else:
+            chars_before = peptide[:m.start()]
+            aa_count_before = sum(1 for ch in chars_before if ch.isupper())
+            pos = aa_count_before + 1  # 1-based position
+            mods.append(f'{pos}{residue}({mass})')
+    return ', '.join(mods)
+
+
+def extract_mod_mass_diff(peptide):
+    mass_diffs = []
+    MOD_PATTERN = re.compile(r'([A-Za-z])\s*\[([+-]?\d+(?:\.\d+)?)\]')
+    for m in MOD_PATTERN.finditer(peptide):
+        mod_mass = float(m.group(2))
+        mass_diffs.append(mod_mass)
+    return mass_diffs
+
+
 def convert_mass_diff_to_unimod(peptides: List[str], mass_unimod_map, supported_list=None) -> tuple[List[str], List[dict]]:
     pattern = r'\[([^]]+)]'
     unsolved_mods_list = []

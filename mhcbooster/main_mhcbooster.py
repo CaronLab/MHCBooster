@@ -18,6 +18,7 @@ from pathlib import Path
 from mhcbooster.utils.data_loaders import load_file
 from mhcbooster.utils.mzml_parser import get_rt_ccs_ms2_from_mzml, get_rt_ccs_ms2_from_msfragger_mzml, get_rt_ccs_ms2_from_timsconvert_mzml
 from mhcbooster.utils.features import prepare_features
+from mhcbooster.utils.log import append_log
 from mhcbooster.predictors.netmhcpan_helper import NetMHCpanHelper
 from mhcbooster.predictors.mhcflurry_helper import MhcFlurryHelper
 from mhcbooster.predictors.bigmhc_helper import BigMhcHelper
@@ -70,6 +71,8 @@ class MHCBooster:
         self.high_prob_indices: Union[np.ndarray, None] = None
         self.exp_rts: Union[np.ndarray, None] = None
         self.exp_ims: Union[np.ndarray, None] = None
+        self.spec_names: Union[np.ndarray, None] = None
+        self.spec_indices: Union[np.ndarray, None] = None
         self.exp_ms2s: Union[pd.DataFrame, None] = None
         self.encoded_peptides = None
         self.loaded_filetype: Union[str, None] = None
@@ -329,13 +332,15 @@ class MHCBooster:
             mzml_name = self.filepath.name.replace('_edited.pin', '').replace('.pin', '')
             assert mzml_name in mzml_map.keys(), f'mzML file not found: {self.mzml_folder}/{mzml_name}.mzML '
             mzml_path = mzml_map[mzml_name]
+            append_log(f'mzml={mzml_path}', self.input_log_path, False)
+            print(f'Writing mzml path to log: {mzml_path}')
             # MSFragger mzML
             if '_uncalibrated.' in mzml_path:
-                self.exp_rts, self.exp_ims, self.exp_ms2s = \
+                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
                     get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, self.raw_data['ScanNr'],
                                                        self.raw_data['ExpMass'].astype(float), self.charges)
             else:
-                self.exp_rts, self.exp_ims, self.exp_ms2s = \
+                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
                     get_rt_ccs_ms2_from_mzml(mzml_path, self.raw_data['ScanNr'],
                                              self.raw_data['ExpMass'].astype(float), self.charges)
 
@@ -631,6 +636,12 @@ class MHCBooster:
             print(f'Results already exist in {report_directory}. Skipping reprocessing.')
             return
 
+        self.input_log_path = report_directory / 'input_files.txt'
+        if self.input_log_path.exists():
+            self.input_log_path.unlink()
+        append_log(f'psm={self.filepath}', self.input_log_path, False)
+        append_log(f'fasta={fasta_path}', self.input_log_path, False)
+
         if clear_session:
             K.clear_session()
 
@@ -887,11 +898,13 @@ class MHCBooster:
         print(f' | Sequences validated at 1% FDR: {np.sum((seq_qvalue <= 0.01) & (seq_labels == 1))}')
         print('===================================')
 
-        run_reporter = RunReporter(report_directory, Path(self.filename).stem, self.decoy_tag)
-        run_reporter.add_run_result(peptides=self.peptides_with_mods, sequences=self.peptides,
+        run_reporter = RunReporter(report_directory, self.decoy_tag)
+        run_reporter.add_run_result(spec_names=self.spec_names, spec_indices=self.spec_indices,
+                                    rts=self.exp_rts, ims=self.exp_ims, masses=self.raw_data['ExpMass'].astype(float),
+                                    charges=self.charges,
+                                    peptides=self.peptides_with_mods, sequences=self.peptides,
                                     prev_aas=self.prev_aas, next_aas=self.next_aas,
-                                    labels=self.labels,
-                                    charges=self.charges, scores=self.predictions,
+                                    labels=self.labels, scores=self.predictions,
                                     proteins=self.raw_data['Proteins'].str.replace('@', '', regex=False))
         run_reporter.add_app_score()
         run_reporter.generate_pep_xml(fasta_path=fasta_path)

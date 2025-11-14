@@ -74,13 +74,17 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         ms_list = ms2_list
     else:
         ms_list = ms1_list
+    spec_names = [None] * len(scan_nrs)
+    spec_indices = [None] * len(scan_nrs)
     exp_rts = [None] * len(scan_nrs)
     exp_ims = [None] * len(scan_nrs)
     exp_mzs = [None] * len(scan_nrs)
     exp_intensities = [None] * len(scan_nrs)
     exp_ces = [None] * len(scan_nrs)
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
+        spec_indices[i] = scan_nr - 1
         spectrum = ms_list[scan_nr - 1]
+        spec_names[i] = spectrum['spectrum title']
         target_rt = _extract_rt(spectrum)
         exp_rts[i] = target_rt
         precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
@@ -95,7 +99,9 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         # Search neighbor for TimsTOF data
         matched = False
         for j in range(1, scan_nr):  # to left
+            spec_indices[i] = scan_nr - j - 1
             spectrum = ms_list[scan_nr - j - 1]
+            spec_names[i] = spectrum['spectrum title']
             rt = _extract_rt(spectrum)
             if rt != target_rt:
                 break
@@ -111,7 +117,9 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         if matched:
             continue
         for j in range(1, len(ms_list) - scan_nr + 1): # to right
+            spec_indices[i] = scan_nr + j - 1
             spectrum = ms_list[scan_nr + j - 1]
+            spec_names[i] = spectrum['spectrum title']
             rt = spectrum['scanList']['scan'][0]['scan start time']
             if rt != target_rt:
                 break
@@ -125,21 +133,26 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
                 exp_intensities[i] = ints
                 break
         if not matched:
-            precursor_mz, lower_offset, upper_offset = _extract_mz(ms_list[scan_nr - 1])
+            spec_indices[i] = scan_nr - 1
+            spectrum = ms_list[scan_nr - 1]
+            spec_names[i] = spectrum['spectrum title']
+            precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
             print(f'WARNING: Spectrum not matched perfectly. peptide_mz: {target_mzs[i]}, precursor_mz:{precursor_mz}, lower_offset:{lower_offset}, upper_offset:{upper_offset}.')
-            im, ce, mzs, ints = _extract_im_ms2(ms_list[scan_nr - 1])
+            im, ce, mzs, ints = _extract_im_ms2(spectrum)
             exp_ims[i] = im
             exp_ces[i] = ce
             exp_mzs[i] = mzs
             exp_intensities[i] = ints
 
+    spec_names = np.array(spec_names)
+    spec_indices = np.array(spec_indices).astype(int)
     exp_rts = np.array(exp_rts)
     exp_ims = np.array(exp_ims)
     exp_spectra = pd.DataFrame()
     exp_spectra['mzs'] = exp_mzs
     exp_spectra['intensities'] = exp_intensities
     exp_spectra['ce'] = exp_ces
-    return exp_rts, exp_ims, exp_spectra
+    return spec_names, spec_indices, exp_rts, exp_ims, exp_spectra
 
 
 def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
@@ -154,13 +167,17 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
     # else:
     #     ms_list = ms1_list
     ms_list = ms1_list
+    spec_names = [None] * len(scan_nrs)
+    spec_indices = [None] * len(scan_nrs)
     exp_rts = [None] * len(scan_nrs)
     exp_ims = [None] * len(scan_nrs)
     exp_mzs = [None] * len(scan_nrs)
     exp_intensities = [None] * len(scan_nrs)
     exp_ces = [None] * len(scan_nrs)
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
+        spec_indices[i] = scan_nr - 1
         spectrum = ms_list[scan_nr - 1]
+        spec_names[i] = spectrum['spectrum title']
         target_rt = _extract_rt(spectrum)
         exp_rts[i] = target_rt
         precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
@@ -175,7 +192,9 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
         # Search neighbor for TimsTOF data
         matched = False
         for j in range(1, scan_nr):  # to left
+            spec_indices[i] = scan_nr - j - 1
             spectrum = ms_list[scan_nr - j - 1]
+            spec_names[i] = spectrum['spectrum title']
             rt = _extract_rt(spectrum)
             if rt != target_rt:
                 break
@@ -191,7 +210,9 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
         if matched:
             continue
         for j in range(1, len(ms_list) - scan_nr + 1): # to right
+            spec_indices[i] = scan_nr + j - 1
             spectrum = ms_list[scan_nr + j - 1]
+            spec_names[i] = spectrum['spectrum title']
             rt = spectrum['scanList']['scan'][0]['scan start time']
             if rt != target_rt:
                 break
@@ -205,21 +226,26 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
                 exp_intensities[i] = ints
                 break
         if not matched:
-            precursor_mz, lower_offset, upper_offset = _extract_mz(ms_list[scan_nr - 1])
+            spec_indices[i] = scan_nr - 1
+            spectrum = ms_list[scan_nr - 1]
+            spec_names[i] = spectrum['spectrum title']
+            precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
             print(f'WARNING: Spectrum not matched perfectly. peptide_mz: {target_mzs[i]}, precursor_mz:{precursor_mz}, lower_offset:{lower_offset}, upper_offset:{upper_offset}.')
-            im, ce, mzs, ints = _extract_im_ms2(ms_list[scan_nr - 1])
+            im, ce, mzs, ints = _extract_im_ms2(spectrum)
             exp_ims[i] = im
             exp_ces[i] = ce
             exp_mzs[i] = mzs
             exp_intensities[i] = ints
 
+    spec_names = np.array(spec_names)
+    spec_indices = np.array(spec_indices).astype(int)
     exp_rts = np.array(exp_rts)
     exp_ims = np.array(exp_ims)
     exp_spectra = pd.DataFrame()
     exp_spectra['mzs'] = exp_mzs
     exp_spectra['intensities'] = exp_intensities
     exp_spectra['ce'] = exp_ces
-    return exp_rts, exp_ims, exp_spectra
+    return spec_names, spec_indices, exp_rts, exp_ims, exp_spectra
 
 
 def get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, scan_nrs, masses, charges):
@@ -229,25 +255,32 @@ def get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, scan_nrs, masses, charges):
     scan_nrs = [str(nr) for nr in scan_nrs]
     scan_nrs_unique = np.sort(np.unique(np.array(scan_nrs).astype(int))).astype(str)
     scannr_idx_map = {}
-    ms2_list = deque()
+    spec_idx_map = {}
+    ms2_list, ms2_names = deque(), deque()
     scan_nr_idx = 0
-    for data in tqdm(mzml_file, desc='Loading related MS2 spectrum to memory...'):
+    for i, data in enumerate(tqdm(mzml_file, desc='Loading related MS2 spectrum to memory...')):
         tmp_scan_nr = data['spectrum title'].rsplit('.', 2)[-2]
         if tmp_scan_nr == scan_nrs_unique[scan_nr_idx]:
             ms2_list.append(data)
+            ms2_names.append(data['spectrum title'])
             scannr_idx_map[tmp_scan_nr] = scan_nr_idx
+            spec_idx_map[tmp_scan_nr] = i
             scan_nr_idx += 1
             if scan_nr_idx == len(scan_nrs_unique):
                 break
     ms2_list = list(ms2_list)
     print(len(ms2_list), len(scan_nrs_unique))
     assert len(ms2_list) == len(scan_nrs_unique), 'Error in MSFragger uncalibrated mzML file reading...'
+    spec_names = [None] * len(scan_nrs)
+    spec_indices = [None] * len(scan_nrs)
     exp_rts = [None] * len(scan_nrs)
     exp_ims = [None] * len(scan_nrs)
     exp_mzs = [None] * len(scan_nrs)
     exp_intensities = [None] * len(scan_nrs)
     exp_ces = [None] * len(scan_nrs)
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
+        spec_names[i] = ms2_names[scannr_idx_map[scan_nr]]
+        spec_indices[i] = spec_idx_map[scan_nr]
         spectrum = ms2_list[scannr_idx_map[scan_nr]]
         target_rt = _extract_rt(spectrum)
         exp_rts[i] = target_rt
@@ -266,10 +299,12 @@ def get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, scan_nrs, masses, charges):
             exp_mzs[i] = mzs
             exp_intensities[i] = ints
 
+    spec_names = np.array(spec_names)
+    spec_indices = np.array(spec_indices).astype(int)
     exp_rts = np.array(exp_rts)
     exp_ims = np.array(exp_ims)
     exp_spectra = pd.DataFrame()
     exp_spectra['mzs'] = exp_mzs
     exp_spectra['intensities'] = exp_intensities
     exp_spectra['ce'] = exp_ces
-    return exp_rts, exp_ims, exp_spectra
+    return spec_names, spec_indices, exp_rts, exp_ims, exp_spectra

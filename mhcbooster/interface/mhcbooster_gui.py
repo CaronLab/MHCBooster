@@ -542,7 +542,7 @@ class MhcBoosterGUI(QWidget):
         third_party_layout.addLayout(bigmhc_layout)
 
         # NetMHCpan
-        netmhcpan_label = QLabel('NetMHCpan path: \t')
+        netmhcpan_label = QLabel('NetMHCpan path:  ')
         self.netmhcpan_inputbox = QLineEdit()
         self.netmhcpan_inputbox.setPlaceholderText("Select the path to netMHCpan-4.1b.Linux.tar.gz ...")
         self.netmhcpan_browse_button = QPushButton("Browse")
@@ -585,11 +585,26 @@ class MhcBoosterGUI(QWidget):
         mixmhc2pred_layout.addWidget(self.mixmhc2pred_browse_button)
         mixmhc2pred_layout.addWidget(self.mixmhc2pred_download_button)
         third_party_layout.addLayout(mixmhc2pred_layout)
-        
+
+        # IonQuant
+        ionquant_label = QLabel('IonQuant path: \t')
+        self.ionquant_inputbox = QLineEdit()
+        self.ionquant_inputbox.setPlaceholderText("Select the path to IonQuant-1.11.11.zip ...")
+        self.ionquant_browse_button = QPushButton("Browse")
+        self.ionquant_browse_button.clicked.connect(self.open_file_dialog)
+        self.ionquant_download_button = QPushButton("Download")
+        self.ionquant_download_button.clicked.connect(lambda: webbrowser.open('https://msfragger-upgrader.nesvilab.org/ionquant/'))
+        ionquant_layout = QHBoxLayout()
+        ionquant_layout.addWidget(ionquant_label)
+        ionquant_layout.addWidget(self.ionquant_inputbox)
+        ionquant_layout.addWidget(self.ionquant_browse_button)
+        ionquant_layout.addWidget(self.ionquant_download_button)
+        third_party_layout.addLayout(ionquant_layout)
+
         extract_layout = QHBoxLayout()
         extract_layout.setContentsMargins(0, 10, 0, 0)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 6)  # Set range to 0 to make it indeterminate
+        self.progress_bar.setRange(0, 7)  # Set range to 0 to make it indeterminate
         self.progress_bar.setTextVisible(False)  # Hide the text inside the progress bar
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
@@ -701,6 +716,8 @@ class MhcBoosterGUI(QWidget):
                 self.raw_param_inputbox.setText(selected_path)
             elif sender == self.msfragger_browse_button:
                 self.msfragger_inputbox.setText(selected_path)
+            elif sender == self.ionquant_browse_button:
+                self.ionquant_inputbox.setText(selected_path)
             elif sender == self.autort_browse_button:
                 self.autort_inputbox.setText(selected_path)
             elif sender == self.bigmhc_browse_button:
@@ -793,6 +810,9 @@ class MhcBoosterGUI(QWidget):
         if Path(self.mixmhc2pred_inputbox.text()).exists() and self.mixmhc2pred_inputbox.text().endswith('.zip'):
             install_mixmhc2pred(self.mixmhc2pred_inputbox.text())
         self.progress_bar.setValue(6)
+        if Path(self.ionquant_inputbox.text()).exists() and self.ionquant_inputbox.text().endswith('.zip'):
+            install_ionquant(self.ionquant_inputbox.text())
+        self.progress_bar.setValue(7)
         self.refresh_third_party_status()
         time.sleep(1)
         self.progress_bar.setVisible(False)
@@ -808,6 +828,8 @@ class MhcBoosterGUI(QWidget):
                 self.mixmhc2pred_inputbox.setText(str(path))
             if 'MSFragger' in path.name:
                 self.msfragger_inputbox.setText(str(path))
+            if 'IonQuant' in path.name:
+                self.ionquant_inputbox.setText(str(path))
             if 'netMHCIIpan' in path.name:
                 self.netmhcIIpan_inputbox.setText(str(path))
             if 'netMHCpan' in path.name:

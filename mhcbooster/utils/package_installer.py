@@ -19,9 +19,21 @@ def install_msfragger(path):
     with zipfile.ZipFile(path, 'r') as zip_ref:
         zip_ref.extractall(target_folder)
         print('MSFragger installed to {}'.format(target_folder))
-    with tarfile.open(target_folder / 'jre-17.0.14.tar.gz', 'r:gz') as tar:
-        tar.extractall(target_folder)
-        print('Java runtime environment installed to {}'.format(target_folder))
+    if not (target_folder / 'jre-17.0.14').exists():
+        with tarfile.open(target_folder / 'jre-17.0.14.tar.gz', 'r:gz') as tar:
+            tar.extractall(target_folder)
+            print('Java runtime environment installed to {}'.format(target_folder))
+
+
+def install_ionquant(path):
+    print('Installing IonQuant...')
+    with zipfile.ZipFile(path, 'r') as zip_ref:
+        zip_ref.extractall(target_folder)
+        print('IonQuant installed to {}'.format(target_folder))
+    if not (target_folder / 'jre-17.0.14').exists():
+        with tarfile.open(target_folder / 'jre-17.0.14.tar.gz', 'r:gz') as tar:
+            tar.extractall(target_folder)
+            print('Java runtime environment installed to {}'.format(target_folder))
 
 
 def install_autort(path):
@@ -116,6 +128,8 @@ def install():
         folder_path = Path(args[1])
         if (folder_path / 'MSFragger-4.1.zip').exists():
             install_msfragger(folder_path / 'MSFragger-4.1.zip')
+        if (folder_path / 'IonQuant-1.11.11.zip').exists():
+            install_ionquant(folder_path / 'IonQuant-1.11.11.zip')
         if (folder_path / 'AutoRT-master.zip').exists():
             install_autort(folder_path / 'AutoRT-master.zip')
         if (folder_path / 'bigmhc-master.zip').exists():

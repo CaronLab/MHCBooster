@@ -131,7 +131,7 @@ class KoinaHelper(BasePredictorHelper):
     def _predict_ms2(self):
         self.peptide_df = pd.DataFrame(self.peptides, columns=['peptide_sequences'])
         self.peptide_df['precursor_charges'] = self.charges
-        self.peptide_df['collision_energies'] = self.exp_ms2s['ce'].to_numpy(dtype=np.float32)
+        self.peptide_df['collision_energies'] = self.exp_ms2s['ce'].to_numpy(dtype=np.float32) if self.exp_ms2s is not None else np.array([25] * len(self.peptide_df))
         self.peptide_df['instrument_types'] = np.array([self.instrument_type] * len(self.peptide_df))
         self.peptide_df['fragmentation_types'] = np.array([self.fragmentation_type] * len(self.peptide_df))
         self.peptide_df = self.peptide_df.reset_index(drop=False)
