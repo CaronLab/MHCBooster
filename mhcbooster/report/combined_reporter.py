@@ -389,7 +389,7 @@ class CombinedReporter:
         for command in commands:
             subprocess.run(command, shell=True, cwd=self.result_folder)
 
-
+        # The following code is modified from the FragPipe script
         library_df = pd.read_csv(easypqp_library_path, sep='\t')
         frag_df = library_df['Annotation'].str.extract(r'^([abcxyz])(\d{1,2})(?:-(.*))?\^(\d+)$')
         frag_df.columns = 'FragmentType', 'FragmentSeriesNumber', 'FragmentLossType', 'FragmentCharge'
@@ -431,8 +431,8 @@ class CombinedReporter:
         library_path = self.result_folder / 'library.tsv'
         df_lib.to_csv(library_path, sep='\t', index=False)
 
-        # for path in self.result_folder.glob('easypqp_*'):
-        #     path.unlink()
+        for path in self.result_folder.glob('easypqp_*'):
+            path.unlink()
         for path in psms_paths:
             Path(path).unlink()
         for path in peaks_paths:
