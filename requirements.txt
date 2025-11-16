@@ -24,5 +24,4 @@ PySide6
 statsmodels==0.14.4
 koinapy==0.0.9
 adjustText
-git+https://github.com/grosenberger/easypqp.git@master
 #im2deep 1.0.3 requires numpy==1.26.0, but you have numpy 1.26.4 which is incompatible.
