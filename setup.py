@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages, find_namespace_packages
+from setuptools import setup
 from mhcbooster import __version__ as version
 
 def read_requirements(filename="requirements.txt"):
@@ -27,7 +27,7 @@ setup(
     packages=['mhcbooster', 'mhcbooster.adapter', 'mhcbooster.interface', 'mhcbooster.model', 'mhcbooster.predictors',
               'mhcbooster.report', 'mhcbooster.utils',
               'mhcbooster.third_party'],
-    python_requires='==3.10',
+    python_requires='==3.10.*',
     install_requires=read_requirements(),
     include_package_data=True,
     license='GPL-3.0'

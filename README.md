@@ -22,7 +22,7 @@ conda activate mhcbooster
 # install MHCBooster
 pip install mhcbooster==2.2.0
 
-# install env for third-party tools (Ubuntu 20.04)
+# install env for third-party tools (tested on WSL Ubuntu 20.04)
 pip install git+https://github.com/grosenberger/easypqp.git@master
 sudo apt update
 sudo apt install libxcb-xinerama0 libxcb-cursor0 libx11-xcb1 qt5-qmake qtbase5-dev qtchooser qtbase5-dev-tools   # GUI
