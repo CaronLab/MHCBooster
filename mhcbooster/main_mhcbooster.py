@@ -326,23 +326,7 @@ class MHCBooster:
         if ('RT' in predictor_types and self.exp_rts is None) or \
                 ('MS2' in predictor_types and self.exp_ms2s is None) or \
                 ('CCS' in predictor_types and self.exp_ims is None):
-            assert self.mzml_folder is not None, f'mzML folder must be provided for {predictor_types} scores'
-            mzml_paths = Path(self.mzml_folder).rglob('*.mzML')
-            mzml_map = {path.stem.replace('_uncalibrated', ''): str(path.expanduser().resolve()) for path in mzml_paths}
-            mzml_name = self.filepath.name.replace('_edited.pin', '').replace('.pin', '')
-            assert mzml_name in mzml_map.keys(), f'mzML file not found: {self.mzml_folder}/{mzml_name}.mzML '
-            mzml_path = mzml_map[mzml_name]
-            append_log(f'mzml={mzml_path}', self.input_log_path, False)
-            print(f'Writing mzml path to log: {mzml_path}')
-            # MSFragger mzML
-            if '_uncalibrated.' in mzml_path:
-                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
-                    get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, self.raw_data['ScanNr'],
-                                                       self.raw_data['ExpMass'].astype(float), self.charges)
-            else:
-                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
-                    get_rt_ccs_ms2_from_mzml(mzml_path, self.raw_data['ScanNr'],
-                                             self.raw_data['ExpMass'].astype(float), self.charges)
+            assert self.mzml_path is not None, f'mzML folder must be provided for {predictor_types} scores'
 
     def add_mhcflurry_predictions(self):
         """
@@ -642,14 +626,29 @@ class MHCBooster:
         append_log(f'psm={self.filepath}', self.input_log_path, False)
         append_log(f'fasta={fasta_path}', self.input_log_path, False)
 
+        self.mzml_path = None
+        if mzml_folder is not None:
+            mzml_paths = Path(mzml_folder).rglob('*.mzML')
+            mzml_map = {path.stem.replace('_uncalibrated', ''): str(path.expanduser().resolve()) for path in mzml_paths}
+            mzml_name = self.filepath.name.replace('_edited.pin', '').replace('.pin', '')
+            assert mzml_name in mzml_map.keys(), f'mzML file not found: {mzml_folder}/{mzml_name}.mzML '
+            self.mzml_path = mzml_map[mzml_name]
+            append_log(f'mzml={self.mzml_path}', self.input_log_path, False)
+            if '_uncalibrated.' in self.mzml_path:
+                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
+                    get_rt_ccs_ms2_from_msfragger_mzml(self.mzml_path, self.raw_data['ScanNr'],
+                                                       self.raw_data['ExpMass'].astype(float), self.charges)
+            else:
+                self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
+                    get_rt_ccs_ms2_from_mzml(self.mzml_path, self.raw_data['ScanNr'],
+                                             self.raw_data['ExpMass'].astype(float), self.charges)
+
         if clear_session:
             K.clear_session()
 
         if random_seed is None:
             random_seed = self.random_seed
         self._set_seed(random_seed)
-
-        self.mzml_folder = str(mzml_folder)
 
         self.rt_predictors = rt_predictors if rt_predictors is not None else []
         self.ms2_predictors = ms2_predictors if ms2_predictors is not None else []

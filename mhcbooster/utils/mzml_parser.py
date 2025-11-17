@@ -1,6 +1,7 @@
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 from tqdm import tqdm
 from collections import deque
@@ -84,7 +85,7 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
         spec_indices[i] = scan_nr - 1
         spectrum = ms_list[scan_nr - 1]
-        spec_names[i] = spectrum['spectrum title']
+        spec_names[i] = spectrum['spectrum title'].split(' ')[0]
         target_rt = _extract_rt(spectrum)
         exp_rts[i] = target_rt
         precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
@@ -101,7 +102,7 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         for j in range(1, scan_nr):  # to left
             spec_indices[i] = scan_nr - j - 1
             spectrum = ms_list[scan_nr - j - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = spectrum['spectrum title'].split(' ')[0]
             rt = _extract_rt(spectrum)
             if rt != target_rt:
                 break
@@ -119,7 +120,7 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         for j in range(1, len(ms_list) - scan_nr + 1): # to right
             spec_indices[i] = scan_nr + j - 1
             spectrum = ms_list[scan_nr + j - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = spectrum['spectrum title'].split(' ')[0]
             rt = spectrum['scanList']['scan'][0]['scan start time']
             if rt != target_rt:
                 break
@@ -135,7 +136,7 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         if not matched:
             spec_indices[i] = scan_nr - 1
             spectrum = ms_list[scan_nr - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = spectrum['spectrum title'].split(' ')[0]
             precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
             print(f'WARNING: Spectrum not matched perfectly. peptide_mz: {target_mzs[i]}, precursor_mz:{precursor_mz}, lower_offset:{lower_offset}, upper_offset:{upper_offset}.')
             im, ce, mzs, ints = _extract_im_ms2(spectrum)
@@ -159,6 +160,7 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
 
     target_mzs = masses / charges + PROTON_MASS
     mzml_file = mzml.read(mzml_path)
+    file_name = Path(mzml_path).stem
     ms1_list = [data for data in tqdm(mzml_file, desc='Loading mzML spectra to memory...')]
     # ms2_list = [data for data in ms1_list if data['ms level'] == 2]
 
@@ -177,7 +179,7 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
         spec_indices[i] = scan_nr - 1
         spectrum = ms_list[scan_nr - 1]
-        spec_names[i] = spectrum['spectrum title']
+        spec_names[i] = '.'.join([file_name, scan_nr, scan_nr, charges[i]])
         target_rt = _extract_rt(spectrum)
         exp_rts[i] = target_rt
         precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
@@ -194,7 +196,7 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
         for j in range(1, scan_nr):  # to left
             spec_indices[i] = scan_nr - j - 1
             spectrum = ms_list[scan_nr - j - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = '.'.join([file_name, scan_nr, scan_nr, charges[i]])
             rt = _extract_rt(spectrum)
             if rt != target_rt:
                 break
@@ -212,7 +214,7 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
         for j in range(1, len(ms_list) - scan_nr + 1): # to right
             spec_indices[i] = scan_nr + j - 1
             spectrum = ms_list[scan_nr + j - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = '.'.join([file_name, scan_nr, scan_nr, charges[i]])
             rt = spectrum['scanList']['scan'][0]['scan start time']
             if rt != target_rt:
                 break
@@ -228,7 +230,7 @@ def get_rt_ccs_ms2_from_timsconvert_mzml(mzml_path, scan_nrs, masses, charges):
         if not matched:
             spec_indices[i] = scan_nr - 1
             spectrum = ms_list[scan_nr - 1]
-            spec_names[i] = spectrum['spectrum title']
+            spec_names[i] = '.'.join([file_name, scan_nr, scan_nr, charges[i]])
             precursor_mz, lower_offset, upper_offset = _extract_mz(spectrum)
             print(f'WARNING: Spectrum not matched perfectly. peptide_mz: {target_mzs[i]}, precursor_mz:{precursor_mz}, lower_offset:{lower_offset}, upper_offset:{upper_offset}.')
             im, ce, mzs, ints = _extract_im_ms2(spectrum)
