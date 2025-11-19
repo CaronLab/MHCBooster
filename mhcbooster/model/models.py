@@ -32,7 +32,7 @@ def get_model_with_lstm_peptide_encoding(ms_feature_length: int,
 
 def peptide_sequence_encoding():
     pep_input = keras.Input(shape=(15, 21))
-    p = layers.BatchNormalization(input_shape=(15, 21))(pep_input)
+    p = layers.BatchNormalization()(pep_input)
     p = layers.Conv1D(12, 4, padding="valid", activation=tf.nn.tanh)(p) # this should perhaps be 18, not 12. there are up to three anchor sites and 6 alleles
     p = layers.MaxPool1D()(p)
     p = layers.Flatten()(p)
@@ -53,7 +53,7 @@ def peptide_sequence_label_prediction():
 def peptide_sequence_encoder(dropout: float = 0.6, max_pep_length: int = 15, encoding_size: int = 3,
                              dense_layers: int = 2):
     pep_input = keras.Input(shape=(max_pep_length, 21))
-    p = layers.BatchNormalization(input_shape=(max_pep_length, 21))(pep_input)
+    p = layers.BatchNormalization()(pep_input)
     p = layers.Conv1D(12, 4, padding="valid", activation=tf.nn.tanh)(p)
     #p = layers.MaxPool1D()(p)
     p = layers.Dropout(dropout)(p)
@@ -88,7 +88,7 @@ def get_model_with_peptide_encoding(ms_feature_length: int, max_pep_length: int 
                                     filter_stride: int = 4, n_encoded_sequence_features: int = 6,
                                     after_convolutions_width_ratio: float = 5) -> keras.Model:
     pep_input = keras.Input(shape=(max_pep_length, 21))
-    p = layers.BatchNormalization(input_shape=(max_pep_length, 21))(pep_input)
+    p = layers.BatchNormalization()(pep_input)
     for i in range(convolutional_layers):
         p = layers.Conv1D(n_filters, filter_size, filter_stride, padding="valid", activation=tf.nn.tanh)(p)
         p = layers.MaxPool1D()(p)
@@ -98,7 +98,7 @@ def get_model_with_peptide_encoding(ms_feature_length: int, max_pep_length: int 
     pep_out_flat = layers.Dense(n_encoded_sequence_features, activation=tf.nn.relu)(p)
 
     ms_feature_input = keras.Input(shape=(ms_feature_length,))
-    x = layers.BatchNormalization(input_shape=(ms_feature_length,))(ms_feature_input)
+    x = layers.BatchNormalization()(ms_feature_input)
     x = layers.concatenate([x, pep_out_flat])
     n_nodes = int(round(int(x.shape[1]) * after_convolutions_width_ratio))
     for i in range(hidden_layers_after_convolutions):
@@ -115,7 +115,7 @@ def get_model_without_peptide_encoding(ms_feature_length: int, max_pep_length: i
                                        hidden_layers: int = 2, width_ratio: float = 5) -> keras.Model:
     n_nodes = int(round(ms_feature_length * width_ratio))
     input = keras.Input(shape=(ms_feature_length,))
-    x = layers.BatchNormalization(input_shape=(ms_feature_length,))(input)
+    x = layers.BatchNormalization()(input)
     for i in range(hidden_layers):
         x = layers.Dense(n_nodes, activation=tf.nn.relu)(x)
         x = layers.Dropout(dropout)(x)
