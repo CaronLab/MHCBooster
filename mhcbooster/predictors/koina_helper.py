@@ -6,7 +6,7 @@ from typing import List, Union
 from koinapy import Koina
 from mhcbooster.utils.constants import MASS_UNIMOD_MAP
 from mhcbooster.predictors.base_predictor_helper import BasePredictorHelper
-from mhcbooster.utils.peptide import convert_mass_diff_to_unimod
+from mhcbooster.utils.peptide import convert_mass_diff_to_unimod, remove_modifications
 
 # Updated in Nov 5, 2024
 koina_predictor_map = {
@@ -117,35 +117,36 @@ class KoinaHelper(BasePredictorHelper):
             self.high_prob_indices = None
 
 
-    def _predict_rt(self):
-        self.peptide_df = pd.DataFrame(self.peptides, columns=['peptide_sequences'])
-        pred_df = self.model.predict(self.peptide_df)
+    def _predict_rt(self, peptides, unsolved_mods, charges, ces):
+        peptide_df = pd.DataFrame(peptides, columns=['peptide_sequences'])
+        pred_df = self.model.predict(peptide_df)
         return pred_df
 
-    def _predict_ccs(self):
-        self.peptide_df = pd.DataFrame(self.peptides, columns=['peptide_sequences'])
-        self.peptide_df['precursor_charges'] = self.charges
-        pred_df = self.model.predict(self.peptide_df)
+    def _predict_ccs(self, peptides, unsolved_mods, charges, ces):
+        peptide_df = pd.DataFrame(peptides, columns=['peptide_sequences'])
+        peptide_df['precursor_charges'] = charges
+        pred_df = self.model.predict(peptide_df)
         return pred_df
 
-    def _predict_ms2(self):
-        self.peptide_df = pd.DataFrame(self.peptides, columns=['peptide_sequences'])
-        self.peptide_df['precursor_charges'] = self.charges
-        self.peptide_df['collision_energies'] = self.exp_ms2s['ce'].to_numpy(dtype=np.float32) if self.exp_ms2s is not None else np.array([25] * len(self.peptide_df))
-        self.peptide_df['instrument_types'] = np.array([self.instrument_type] * len(self.peptide_df))
-        self.peptide_df['fragmentation_types'] = np.array([self.fragmentation_type] * len(self.peptide_df))
-        self.peptide_df = self.peptide_df.reset_index(drop=False)
-        pred_df = pd.DataFrame(self.model.predict(self.peptide_df))
+    def _predict_ms2(self, peptides, unsolved_mods, charges, ces):
+        peptide_df = pd.DataFrame(peptides, columns=['peptide_sequences'])
+        peptide_df['precursor_charges'] = charges
+        peptide_df['collision_energies'] = ces
+        peptide_df['instrument_types'] = np.array([self.instrument_type] * len(peptide_df))
+        peptide_df['fragmentation_types'] = np.array([self.fragmentation_type] * len(peptide_df))
+        peptide_df = peptide_df.reset_index(drop=False)
+        pred_df = pd.DataFrame(self.model.predict(peptide_df))
 
         pred_df = (pred_df.groupby('index').agg({'intensities': list, 'mz': list, 'annotation': list})
                    .sort_values(by=['index'], ascending=True))
         pred_df = pred_df.rename(columns={'mz': 'mzs'})
 
         #deal with unsupported modifications by prediction models
+        sequences = np.array(remove_modifications(peptides))
         for i in range(len(pred_df)):
-            for position, mass_diff in self.unsolved_mods[i].items():
+            for position, mass_diff in unsolved_mods[i].items():
                 b_position = position
-                y_position = len(self.peptides_no_mod[i]) - position
+                y_position = len(sequences[i]) - position
                 for j, anno in enumerate(pred_df.loc[i, 'annotation']):
                     ion = anno.decode('utf8')
                     ion_type = ion[0]
@@ -160,33 +161,50 @@ class KoinaHelper(BasePredictorHelper):
         pred_func_map = {'RT': self._predict_rt,
                          'CCS': self._predict_ccs,
                          'MS2': self._predict_ms2}
+        self.ces = self.exp_ms2s['ce'].to_numpy(dtype=np.float32) if self.exp_ms2s is not None else np.array([25] * len(self.peptides_with_mods))
         combined_pred_df = pd.DataFrame()
         for predictor_type in self.predictor_map.keys():
             for predictor_name in self.predictor_map[predictor_type]:
-                supported_mods = None
-                for tool_name in supported_mod_map.keys():
-                    if tool_name in predictor_name:
-                        supported_mods = supported_mod_map[tool_name]
-                        break
-                self.peptides, self.unsolved_mods = convert_mass_diff_to_unimod(self.peptides_with_mods,
-                                                                                MASS_UNIMOD_MAP, supported_mods)
+                keys = np.array([','.join([self.peptides_with_mods[i], str(self.charges[i]), str(self.ces[i])]) for i in range(len(self.peptides_with_mods))])
+                db_data, matched_mask = self.try_load_from_db(keys, predictor_name)
+                print(f'Matched {len(db_data)} peptides from DB. Predicting on {len(keys) - len(db_data)} remaining peptides.')
 
-                attempt = 0
-                max_retries = 5  # Maximum number of retries
-                while attempt < max_retries:
-                    try:
-                        self.model = Koina(predictor_name, self.koina_server_url)
-                        pred_df = pred_func_map[predictor_type]()
-                        break
-                    except Exception as e:
-                        print(f"Warning: {e}")
-                        attempt += 1
-                        if attempt < max_retries:
-                            print(f"Retrying in 1 minute... (Attempt {attempt}/{max_retries})")
-                            time.sleep(60)
-                        else:
-                            print("Max retries reached. Operation failed.")
-                            raise
+                pred_df = pd.DataFrame(index=range(len(keys)))
+                if len(db_data) > 0:
+                    pred_df = pd.DataFrame(np.nan, index=range(len(keys)), columns=list(db_data[0].keys())).astype(object)
+                    pred_df.loc[matched_mask] = pd.DataFrame(db_data)[pred_df.columns].values
+
+                if len(db_data) < len(keys):
+                    peptides_with_mods = np.array(self.peptides_with_mods)[~matched_mask]
+                    charges = np.array(self.charges)[~matched_mask]
+                    ces = np.array(self.ces)[~matched_mask]
+
+                    supported_mods = None
+                    for tool_name in supported_mod_map.keys():
+                        if tool_name in predictor_name:
+                            supported_mods = supported_mod_map[tool_name]
+                            break
+                    # TODO: Add more supported mods
+                    peptides, unsolved_mods = convert_mass_diff_to_unimod(peptides_with_mods, MASS_UNIMOD_MAP, supported_mods)
+
+                    attempt = 0
+                    max_retries = 1  # TODO: Maximum number of retries
+                    while attempt < max_retries:
+                        try:
+                            self.model = Koina(predictor_name, self.koina_server_url)
+                            result_df = pred_func_map[predictor_type](peptides, unsolved_mods, charges, ces)
+                            self.save_to_db(keys=keys[~matched_mask], values=result_df.to_dict(orient='records'), predictor_name=predictor_name)
+                            pred_df.loc[~matched_mask, result_df.columns] = result_df.values
+                            break
+                        except Exception as e:
+                            print(f"Warning: {e}")
+                            attempt += 1
+                            if attempt < max_retries:
+                                print(f"Retrying in 1 minute... (Attempt {attempt}/{max_retries})")
+                                time.sleep(60)
+                            else:
+                                print("Max retries reached. Operation failed.")
+                                raise
 
                 if predictor_type == 'RT':
                     if 'irt' in pred_df.keys():
@@ -207,7 +225,8 @@ class KoinaHelper(BasePredictorHelper):
     def score_df(self) -> pd.DataFrame:
 
         def convert_anno(anno):
-            anno = anno.decode('utf8')
+            if isinstance(anno, bytes):
+                anno = anno.decode('utf8')
             match = re.match(r'([by])(\d+)', anno)
             if match:
                 prefix = match.group(1)

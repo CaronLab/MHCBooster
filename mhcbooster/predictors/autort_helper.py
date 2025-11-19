@@ -98,24 +98,32 @@ class AutortHelper(BasePredictorHelper):
                     subprocess.run(command, shell=True)
                     self.model_path = fine_tuned_model_folder / 'model.json'
 
-        # Prepare file for prediction
-        with tempfile.NamedTemporaryFile('w', delete=False) as input_file:
-            autort_input = pd.DataFrame()
-            autort_input['x'] = self.peptide_df['sequence']
-            autort_input.to_csv(input_file, sep='\t', index=False)
+        # try to load from db
+        db_data, matched_mask = self.try_load_from_db(keys=self.peptide_df['sequence'])
+        print(f'Matched {np.sum(matched_mask)} peptides from DB. Predicting on {len(self.peptide_df) - np.sum(matched_mask)} remaining peptides.')
+        self.pred_df = pd.DataFrame({'y_pred': [None] * len(self.peptide_df)})
+        self.pred_df.loc[matched_mask, 'y_pred'] = db_data
 
-        # Perform prediction
-        with tempfile.NamedTemporaryFile('w', delete=False) as result_file:
-            result_file_path = Path(result_file.name)
-            command = f'python {autort_exe_path} predict -t {input_file.name} -s {self.model_path} -o {result_file_path.parent} -p {result_file_path.stem}'
-            command = 'source ~/.bashrc; conda run -n autort --no-capture-output ' + command
-            print('Predicting RTs using AutoRT...')
-            print(command)
-            subprocess.run(command, shell=True)
-            self.pred_df = pd.read_csv(str(result_file_path) + '.tsv', sep='\t')
+        if np.sum(matched_mask) < len(self.peptide_df):
+            # Prepare file for prediction
+            with tempfile.NamedTemporaryFile('w', delete=False) as input_file:
+                autort_input = pd.DataFrame()
+                autort_input['x'] = self.peptide_df['sequence'][~matched_mask]
+                autort_input.to_csv(input_file, sep='\t', index=False)
 
-        os.remove(input_file.name)
-        subprocess.run(f'rm {result_file.name}*', shell=True)
+            # Perform prediction
+            with tempfile.NamedTemporaryFile('w', delete=False) as result_file:
+                result_file_path = Path(result_file.name)
+                command = f'python {autort_exe_path} predict -t {input_file.name} -s {self.model_path} -o {result_file_path.parent} -p {result_file_path.stem}'
+                command = 'source ~/.bashrc; conda run -n autort --no-capture-output ' + command
+                print('Predicting RTs using AutoRT...')
+                print(command)
+                subprocess.run(command, shell=True)
+                pred_df = pd.read_csv(str(result_file_path) + '.tsv', sep='\t')
+                self.save_to_db(keys=self.peptide_df['sequence'][~matched_mask], values=pred_df['y_pred'])
+                self.pred_df.loc[~matched_mask, 'y_pred'] = pred_df['y_pred'].values
+                os.remove(input_file.name)
+                subprocess.run(f'rm {result_file.name}*', shell=True)
 
         return self.pred_df
 
@@ -123,6 +131,7 @@ class AutortHelper(BasePredictorHelper):
 
         exp_rts = self.peptide_df['retention_time']
         pred_rts = self.pred_df['y_pred'].to_numpy(dtype=np.float32)
+        print(pred_rts)
 
         if self.fine_tune:
             predictions = self.calc_rt_scores(exp_rts, pred_rts)

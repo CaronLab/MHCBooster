@@ -23,7 +23,6 @@ sys.path.append(ROOT_PATH.as_posix())
 from mhcbooster import __version__
 from mhcbooster.utils.package_installer import *
 from mhcbooster.adapter.msfragger_adapter import get_msfragger_command
-from mhcbooster.adapter.sage_adapter import get_sage_command
 
 
 def grid_layout(label, elements, n_same_row=4):

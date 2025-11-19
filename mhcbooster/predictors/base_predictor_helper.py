@@ -1,6 +1,5 @@
 import os
 import matplotlib.pyplot as plt
-import numba
 import numpy as np
 import pandas as pd
 
@@ -8,8 +7,10 @@ from mhcbooster.utils.constants import EPSILON
 from mhcbooster.utils.spectrum import calc_all_ms2_scores, calc_spectral_entropy, calc_forward_reverse, calc_cosine_similarity, \
     match_spectra_to_pred, remove_low_intensity_signal
 from statsmodels.nonparametric.smoothers_lowess import lowess
-from sklearn.linear_model import RANSACRegressor
 from scipy.interpolate import interp1d
+from pathlib import Path
+from pickledb import PickleDB
+
 
 class BasePredictorHelper:
     def __init__(self, predictor_name, report_directory):
@@ -24,6 +25,43 @@ class BasePredictorHelper:
 
     def format_pred_result_for_saving(self) -> pd.DataFrame:
         raise NotImplementedError
+
+    def try_load_from_db(self, keys, predictor_name=None):
+        if len(keys) == 0:
+            return [], []
+        db_name = predictor_name if predictor_name is not None else self.predictor_name
+        db_path = str((Path(self.report_directory).parent / f'{db_name}.pkl').resolve())
+        db = PickleDB(location=db_path)
+
+        matched_mask = np.zeros(len(keys), dtype=bool)
+        data = []
+        for i, key in enumerate(keys):
+            if db.get(key) is not None:
+                matched_mask[i] = True
+                data.append(db.get(key))
+        return data, matched_mask
+
+    def save_to_db(self, keys, values, predictor_name=None):
+        if len(keys) == 0:
+            return True
+        db_name = predictor_name if predictor_name is not None else self.predictor_name
+        db_path = str((Path(self.report_directory).parent / f'{db_name}.pkl').resolve())
+        db = PickleDB(location=db_path)
+        for key, value in zip(keys, values):
+            if db.get(key) is not None:
+                continue
+            key = str(key)
+            if isinstance(value, np.ndarray):
+                value = value.tolist()
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if isinstance(v, np.ndarray):
+                        value[k] = v.tolist()
+                    if isinstance(value[k], list) and len(value[k]) > 0 and isinstance(value[k][0], bytes):
+                        for i in range(len(value[k])):
+                            value[k][i] = value[k][i].decode('utf8')
+            db.set(key, value)
+        return db.save()
 
     def calc_rt_scores(self, exp_rts: np.ndarray, pred_rts: np.ndarray, predictor_name: str = None) -> pd.DataFrame:
         predictions = pd.DataFrame()
