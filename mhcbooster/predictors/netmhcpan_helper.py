@@ -44,7 +44,11 @@ class NetMHCpanHelper(BasePredictorHelper):
         """
         Helper class to run NetMHCpan on multiple CPUs from Python. Can annotated a file with peptides in it.
         """
-        super().__init__('NetMHCpan', report_directory)
+        assert mhc_class in ['I', 'II'], 'NetMHCpanHelper mhc_class must be I or II.'
+        if mhc_class == 'I':
+            super().__init__('NetMHCpan', report_directory)
+        else:
+            super().__init__('NetMHCIIpan', report_directory)
         if alleles is None or len(alleles) == 0:
             raise RuntimeError('Alleles are needed for NetMHCpan predictions.')
 
@@ -59,6 +63,7 @@ class NetMHCpanHelper(BasePredictorHelper):
         if peptides is not None:
             self.add_peptides(peptides)
             self.netmhcpan_peptides = replace_uncommon_aas(self.peptides)
+            self.reverse_lookup = {value: key for key, value in self.netmhcpan_peptides.items()}
         else:
             self.netmhcpan_peptides = dict()
         self.predictions = {x: {} for x in self.peptides}
@@ -118,35 +123,45 @@ class NetMHCpanHelper(BasePredictorHelper):
 
         # split peptide list into chunks
         if self.netmhcpan_peptides:
-            peptides = list(self.netmhcpan_peptides.values())
+            peptides = np.unique(list(self.netmhcpan_peptides.values()))
         else:
-            peptides = self.peptides
-        random.shuffle(peptides)  # we need to shuffle them so we don't end up with files filled with peptide lengths that take a LONG time to compute (this actually is a very significant speed up)
+            peptides = np.unique(self.peptides)
+        np.random.shuffle(peptides)  # shuffle to speed up
 
-        if len(peptides) > 100:
-            peptide_iter = iter(peptides)
-            chunks = list(iter(lambda: tuple(islice(peptide_iter, 100)), ()))
-        else:
-            chunks = [peptides]
         job_number = 1
-        print(f'Peptide list broken into {len(chunks)} chunks.')
-
-        for chunk in chunks:
-            if len(chunk) < 1:
+        for allele in self.alleles:
+            keys = [allele + ',' + pep for pep in peptides]
+            db_data, matched_mask = self.try_load_from_db(keys=keys)
+            if len(db_data) > 0:
+                for i, pep in enumerate(peptides[matched_mask]):
+                    self.predictions[self.reverse_lookup[pep]][allele] = db_data[i]
+            if len(db_data) == len(keys):
                 continue
-            fname = Path(self.temp_dir, f'peplist_{job_number}.csv')
-            # save the new peptide list, this will be given to netMHCpan
-            with open(str(fname), 'w') as f:
-                f.write('\n'.join(chunk))
-            # run netMHCpan
-            if self.mhc_class == 'I':
-                command = f'{NETMHCPAN} -p -f {fname} -a {",".join(self.alleles)} -BA'.split(' ')
-            else:
-                command = f'{NETMHCIIPAN} -inptype 1 -f {fname} -a {",".join(self.alleles)} -BA'.split(' ')
 
-            job = Job(command=command, working_directory=self.temp_dir)
-            self.jobs.append(job)
-            job_number += 1
+            unmatched_peptides = peptides[~matched_mask]
+            if len(unmatched_peptides) > 500:
+                peptide_iter = iter(unmatched_peptides)
+                chunks = list(iter(lambda: tuple(islice(peptide_iter, 500)), ()))
+            else:
+                chunks = [unmatched_peptides.tolist()]
+            print(f'Peptide list broken into {len(chunks)} chunks.')
+
+            for chunk in chunks:
+                if len(chunk) < 1:
+                    continue
+                fname = Path(self.temp_dir, f'peplist_{job_number}.csv')
+                # save the new peptide list, this will be given to netMHCpan
+                with open(str(fname), 'w') as f:
+                    f.write('\n'.join(chunk))
+                # run netMHCpan
+                if self.mhc_class == 'I':
+                    command = f'{NETMHCPAN} -p -f {fname} -a {allele} -BA'.split(' ')
+                else:
+                    command = f'{NETMHCIIPAN} -inptype 1 -f {fname} -a {allele} -BA'.split(' ')
+
+                job = Job(command=command, working_directory=self.temp_dir)
+                self.jobs.append(job)
+                job_number += 1
 
     @staticmethod
     def _run_job(job: Job):
@@ -164,7 +179,6 @@ class NetMHCpanHelper(BasePredictorHelper):
 
     def _parse_netmhc_output(self, stdout: str):
         lines = stdout.split('\n')
-        reverse_lookup = {value: key for key, value in self.netmhcpan_peptides.items()}
         if self.mhc_class == 'I':
             allele_idx = 1
             peptide_idx = 2
@@ -185,6 +199,9 @@ class NetMHCpanHelper(BasePredictorHelper):
             aff_rank_idx = 12
             strong_cutoff = 2.0
             weak_cutoff = 10.0
+
+        keys = []
+        values = []
         for line in lines:
             line = line.strip()
             line = line.split()
@@ -205,12 +222,14 @@ class NetMHCpanHelper(BasePredictorHelper):
             else:
                 binder = 'Non-binder'
 
-            self.predictions[reverse_lookup[peptide]][allele] = {'el_rank': el_rank,
-                                                 'el_score': el_score,
-                                                 'aff_rank': aff_rank,
-                                                 'aff_score': aff_score,
-                                                 'aff_nM': aff_nM,
-                                                 'binder': binder}
+            key = allele + ',' + peptide
+            value = {'el_rank': el_rank, 'el_score': el_score, 'aff_rank': aff_rank, 'aff_score': aff_score,
+                     'aff_nM': aff_nM, 'binder': binder}
+            self.predictions[self.reverse_lookup[peptide]][allele] = value
+            keys.append(key)
+            values.append(value)
+        self.save_to_db(keys=keys, values=values)
+
 
     def _aggregate_netmhcpan_results(self):
         for job in self.jobs:

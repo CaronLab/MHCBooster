@@ -188,7 +188,7 @@ class KoinaHelper(BasePredictorHelper):
                     peptides, unsolved_mods = convert_mass_diff_to_unimod(peptides_with_mods, MASS_UNIMOD_MAP, supported_mods)
 
                     attempt = 0
-                    max_retries = 1  # TODO: Maximum number of retries
+                    max_retries = 5  # TODO: Maximum number of retries
                     while attempt < max_retries:
                         try:
                             self.model = Koina(predictor_name, self.koina_server_url)

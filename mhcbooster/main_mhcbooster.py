@@ -451,8 +451,7 @@ class MHCBooster:
 
     def add_koina_predictions(self):
         attempt = 0
-        max_retries = 1  # Maximum number of retries
-        # TODO delete duplicated retries
+        max_retries = 2  # Maximum number of retries
         while attempt < max_retries:
             try:
                 koina_helper = KoinaHelper(self.peptides, self.peptides_with_mods, self.charges,

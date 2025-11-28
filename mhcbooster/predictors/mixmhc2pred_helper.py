@@ -46,25 +46,39 @@ class MixMhc2PredHelper(BasePredictorHelper):
 
     def predict_df(self):
         print('Running MixMHC2pred')
-        with tempfile.NamedTemporaryFile('w', delete=False) as pep_file:
-            for pep in self.peptides:
-                pep_file.write(f'{pep}\n')
-            pep_file_path = pep_file.name
-        with tempfile.NamedTemporaryFile('w') as results:
-            results_file = results.name
+        alleles_key = ','.join(self.alleles)
+        keys = [alleles_key + ',' + self.peptides[i] for i in range(len(self.peptides))]
+        db_data, matched_mask = self.try_load_from_db(keys=keys)
+        pep_file_lines = np.array(self.peptides)[~matched_mask].tolist()
+        print(f'Matched {len(db_data)} peptides from DB. Predicting on {len(pep_file_lines)} remaining peptides.')
 
-        alleles = ' '.join(self.alleles)
-        command = f'{self.mixmhc2pred_exe_path} -i {pep_file_path} -o {results_file} -a {alleles} --no_context'
-        subprocess.run(command, shell=True)
+        if len(pep_file_lines) == 0:
+            self.pred_df = pd.DataFrame(db_data)
+        else:
+            with tempfile.NamedTemporaryFile('w', delete=False) as pep_file:
+                pep_file.write('\n'.join(pep_file_lines))
+                pep_file.write('\n')
+                pep_file_path = pep_file.name
+            with tempfile.NamedTemporaryFile('w') as results:
+                results_file = results.name
 
-        pred = []
-        for line in open(results_file, 'r'):
-            line = line.strip()
-            line = line.split('\t')
-            if not line or line[0].startswith('#'):
-                continue
-            pred.append(line)
-        self.pred_df = pd.DataFrame(pred[1:], columns=pred[0])
+            alleles = ' '.join(self.alleles)
+            command = f'{self.mixmhc2pred_exe_path} -i {pep_file_path} -o {results_file} -a {alleles} --no_context'
+            subprocess.run(command, shell=True)
+
+            pred = []
+            for line in open(results_file, 'r'):
+                line = line.strip()
+                line = line.split('\t')
+                if not line or line[0].startswith('#'):
+                    continue
+                pred.append(line)
+            pred_df = pd.DataFrame(pred[1:], columns=pred[0])
+
+            keys = [alleles_key + ',' + pred_df.loc[i, 'Peptide'] for i in range(len(pred_df))]
+            values = pred_df.to_dict(orient='records')
+            self.save_to_db(keys=keys, values=values)
+            self.pred_df = pd.DataFrame(db_data + values)
 
         return self.pred_df
 
@@ -74,8 +88,10 @@ class MixMhc2PredHelper(BasePredictorHelper):
         All non-log value clipped to a minimum of 1e-7.
         """
 
-        predictions = pd.DataFrame()
+        self.pred_df = self.pred_df.iloc[pd.Series(self.peptides).map(
+            {v: i for i, v in enumerate(self.pred_df['Peptide'])})]
 
+        predictions = pd.DataFrame()
         assert list(self.pred_df['Peptide']) == list(self.peptides)
         alleles = list(self.pred_df.loc[:, 'BestAllele'].unique())
         for allele in alleles:

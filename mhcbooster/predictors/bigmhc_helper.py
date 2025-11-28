@@ -88,27 +88,31 @@ class BigMhcHelper(BasePredictorHelper):
             pep_file_lines += np.array(keys)[~matched_mask].tolist()
         print(f'Matched {len(matched_pmhcs)} pMHCs from DB. Predicting on {len(pep_file_lines)} remaining pMHCs.')
 
-        with tempfile.NamedTemporaryFile('w', delete=False) as pep_file:
-            pep_file.write('mhc,pep\n')
-            pep_file.write('\n'.join(pep_file_lines))
-            pep_file.write('\n')
-            pep_file_path = pep_file.name
-        with tempfile.NamedTemporaryFile('w') as results:
-            results_file_path = results.name
-
-        device = 'all' if gpu else 'cpu'
-        if not im:
-            command = f'python {self.bigmhc_exe_path} -i {pep_file_path} -o {results_file_path} -m el -d {device}'
+        if len(pep_file_lines) == 0:
+            self.pred_df = pd.DataFrame(matched_pmhcs)
         else:
-            command = f'python {self.bigmhc_exe_path} -i {pep_file_path} -o {results_file_path} -m im -d {device}'
-        subprocess.run(command, shell=True)
+            with tempfile.NamedTemporaryFile('w', delete=False) as pep_file:
+                pep_file.write('mhc,pep\n')
+                pep_file.write('\n'.join(pep_file_lines))
+                pep_file.write('\n')
+                pep_file_path = pep_file.name
+            with tempfile.NamedTemporaryFile('w') as results:
+                results_file_path = results.name
 
-        pred_df = pd.read_csv(results_file_path, index_col=False)
-        pred_df['mhc'] = pred_df['mhc'].apply(lambda x: normalize_allele_name(x))
-        keys = [pred_df.loc[i, 'mhc'] + ',' + pred_df.loc[i, 'pep'] for i in range(len(pred_df))]
-        values = pred_df.to_dict(orient='records')
-        self.save_to_db(keys=keys, values=values)
-        self.pred_df = pd.DataFrame(matched_pmhcs + values)
+            device = 'all' if gpu else 'cpu'
+            if not im:
+                command = f'python {self.bigmhc_exe_path} -i {pep_file_path} -o {results_file_path} -m el -d {device}'
+            else:
+                command = f'python {self.bigmhc_exe_path} -i {pep_file_path} -o {results_file_path} -m im -d {device}'
+            subprocess.run(command, shell=True)
+
+            pred_df = pd.read_csv(results_file_path, index_col=False)
+            pred_df['mhc'] = pred_df['mhc'].apply(lambda x: normalize_allele_name(x))
+            keys = [pred_df.loc[i, 'mhc'] + ',' + pred_df.loc[i, 'pep'] for i in range(len(pred_df))]
+            values = pred_df.to_dict(orient='records')
+            self.save_to_db(keys=keys, values=values)
+            self.pred_df = pd.DataFrame(matched_pmhcs + values)
+
         return self.pred_df
 
     def score_df(self) -> pd.DataFrame:
@@ -122,8 +126,8 @@ class BigMhcHelper(BasePredictorHelper):
         alleles = list(self.pred_df.loc[:, 'mhc'].unique())
         for allele in alleles:
             df = self.pred_df.loc[self.pred_df['mhc'] == allele, :]
-            assert len(df['pep']) == len(self.peptides)
-            df = df.iloc[df['pep'].map({v: i for i, v in enumerate(self.peptides)}).argsort()]
+            df = df.iloc[pd.Series(self.peptides).map({v: i for i, v in enumerate(df['pep'])})]
+            assert list(df['pep']) == list(self.peptides)
             formatted_allele = re.sub(r'[^a-zA-Z0-9-_]', '', allele)
             predictions[f'{formatted_allele}_BigMHC_ELScore'] = df['BigMHC_EL'].clip(lower=EPSILON).to_numpy()
             predictions[f'{formatted_allele}_logBigMHC_ELScore'] = np.log(df['BigMHC_EL'].clip(lower=EPSILON)).to_numpy()

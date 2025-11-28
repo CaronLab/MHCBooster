@@ -61,22 +61,39 @@ class IM2DeepHelper(BasePredictorHelper):
                     cal_df.to_csv(train_file, index=False, header=True)
                     print(f'{len(cal_df)} high quality PSMs are used for calibration.')
 
-        # Prepare file for prediction
-        with tempfile.NamedTemporaryFile('w', delete=False) as input_file:
-            self.peptide_df.to_csv(input_file, index=False, header=True)
-        # Perform prediction
-        with tempfile.NamedTemporaryFile('w', delete=False) as result_file:
-            if self.fine_tune:
-                command = f'im2deep {input_file.name} -c {train_file.name} -o {result_file.name}'
-            else:
-                command = f'im2deep {input_file.name} -o {result_file.name}'
+        keys = self.peptide_df.apply(lambda x: f"{x['seq']},{x['charge']},{x['modifications']}", axis=1)
+        db_data, matched_mask = self.try_load_from_db(keys=keys)
+        print(f'Matched {len(db_data)} peptides from DB. Predicting on {len(keys) - len(db_data)} remaining peptides.')
 
-            print('Predicting CCSs using IM2Deep...')
-            if self.verbose:
-                subprocess.run(command, shell=True)
-            else:
-                subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.pred_df = pd.read_csv(result_file.name)
+        self.pred_df = pd.DataFrame({'predicted CCS': [None] * len(self.peptide_df),
+                                     'charge': [None] * len(self.peptide_df)})
+        if len(db_data) > 0:
+            db_df = pd.DataFrame(db_data)
+            self.pred_df.loc[matched_mask, 'predicted CCS'] = db_df['predicted CCS'].values
+            self.pred_df.loc[matched_mask, 'charge'] = db_df['charge'].values
+
+        if len(db_data) < len(keys):
+            # Prepare file for prediction
+            with tempfile.NamedTemporaryFile('w', delete=False) as input_file:
+                self.peptide_df.loc[~matched_mask].to_csv(input_file, index=False, header=True)
+            # Perform prediction
+            with tempfile.NamedTemporaryFile('w', delete=False) as result_file:
+                if self.fine_tune:
+                    command = f'im2deep {input_file.name} -c {train_file.name} -o {result_file.name}'
+                else:
+                    command = f'im2deep {input_file.name} -o {result_file.name}'
+
+                print('Predicting CCSs using IM2Deep...')
+                if self.verbose:
+                    subprocess.run(command, shell=True)
+                else:
+                    subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                pred_df = pd.read_csv(result_file.name)
+                keys = keys[~matched_mask]
+                values = pred_df.to_dict(orient='records')
+                self.save_to_db(keys=keys, values=values)
+                self.pred_df.loc[~matched_mask, 'predicted CCS'] = pred_df['predicted CCS'].values
+                self.pred_df.loc[~matched_mask, 'charge'] = pred_df['charge'].values
 
         if self.fine_tune:
             os.remove(train_file.name)
@@ -87,7 +104,7 @@ class IM2DeepHelper(BasePredictorHelper):
 
     def score_df(self) -> pd.DataFrame:
 
-        pred_ims = self.pred_df[f'predicted CCS'].to_numpy(dtype=np.float32) / self.pred_df['charge'].to_numpy(
+        pred_ims = self.pred_df['predicted CCS'].to_numpy(dtype=np.float32) / self.pred_df['charge'].to_numpy(
             dtype=int) / 200
         if self.fine_tune:
             predictions = self.calc_im_scores(self.exp_ims, pred_ims)

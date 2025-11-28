@@ -131,7 +131,6 @@ class AutortHelper(BasePredictorHelper):
 
         exp_rts = self.peptide_df['retention_time']
         pred_rts = self.pred_df['y_pred'].to_numpy(dtype=np.float32)
-        print(pred_rts)
 
         if self.fine_tune:
             predictions = self.calc_rt_scores(exp_rts, pred_rts)
