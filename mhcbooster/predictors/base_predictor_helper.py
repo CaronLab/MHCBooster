@@ -8,9 +8,9 @@ from mhcbooster.utils.spectrum import calc_all_ms2_scores, calc_spectral_entropy
     match_spectra_to_pred, remove_low_intensity_signal
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from scipy.interpolate import interp1d
-from pathlib import Path
-from pickledb import PickleDB
+import pickle, zlib, time
 
+MEMORY_DB = {}
 
 class BasePredictorHelper:
     def __init__(self, predictor_name, report_directory):
@@ -27,41 +27,36 @@ class BasePredictorHelper:
         raise NotImplementedError
 
     def try_load_from_db(self, keys, predictor_name=None):
-        if len(keys) == 0:
-            return [], []
+        start_time = time.time()
         db_name = predictor_name if predictor_name is not None else self.predictor_name
-        db_path = str((Path(self.report_directory).parent / f'{db_name}.pkl').resolve())
-        db = PickleDB(location=db_path)
 
+        # db_path = str((Path(self.report_directory).parent / f'{db_name}.db').resolve())
         matched_mask = np.zeros(len(keys), dtype=bool)
         data = []
+        if len(keys) == 0 or not db_name in MEMORY_DB:
+            return data, matched_mask
+        db = MEMORY_DB[db_name]
         for i, key in enumerate(keys):
-            if db.get(key) is not None:
+            if key in db:
                 matched_mask[i] = True
-                data.append(db.get(key))
+                data.append(pickle.loads(zlib.decompress(db[key])))
+        print(f'Loading from db {db_name} took {time.time() - start_time:.2f} seconds')
         return data, matched_mask
 
     def save_to_db(self, keys, values, predictor_name=None):
+        start_time = time.time()
         if len(keys) == 0:
             return True
         db_name = predictor_name if predictor_name is not None else self.predictor_name
-        db_path = str((Path(self.report_directory).parent / f'{db_name}.pkl').resolve())
-        db = PickleDB(location=db_path)
-        for key, value in zip(keys, values):
-            if db.get(key) is not None:
-                continue
-            key = str(key)
-            if isinstance(value, np.ndarray):
-                value = value.tolist()
-            if isinstance(value, dict):
-                for k, v in value.items():
-                    if isinstance(v, np.ndarray):
-                        value[k] = v.tolist()
-                    if isinstance(value[k], list) and len(value[k]) > 0 and isinstance(value[k][0], bytes):
-                        for i in range(len(value[k])):
-                            value[k][i] = value[k][i].decode('utf8')
-            db.set(key, value)
-        return db.save()
+
+        if db_name not in MEMORY_DB:
+            MEMORY_DB[db_name] = {}
+
+        for i in range(len(keys)):
+            MEMORY_DB[db_name][keys[i]] = zlib.compress(pickle.dumps(values[i], protocol=4))
+
+        print(f'Saving {len(keys)} KVs to db {db_name} took {time.time() - start_time:.2f} seconds')
+        return True
 
     def calc_rt_scores(self, exp_rts: np.ndarray, pred_rts: np.ndarray, predictor_name: str = None) -> pd.DataFrame:
         predictions = pd.DataFrame()

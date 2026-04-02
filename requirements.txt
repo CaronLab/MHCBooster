@@ -23,4 +23,4 @@ PySide6
 statsmodels==0.14.4
 koinapy==0.0.9
 adjustText
-pickledb
+apsw

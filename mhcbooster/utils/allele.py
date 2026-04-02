@@ -1,5 +1,5 @@
 from typing import List
-from mhcnames import normalize_allele_name, compact_allele_name
+from mhcnames import normalize_allele_name
 
 
 def prepare_class_I_alleles(alleles: List[str], avail_alleles: List[str]):

@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 from os import system
 
-pin_files = Path('/mnt/e/data/PXD058436/Search_all_I_0924').rglob('*edited.pin')
-output_folder = Path('/mnt/e/data/PXD058436/fragpipe')
+pin_files = Path('/mnt/f/Isabelle_muto/search0213_merged').rglob('*edited.pin')
+output_folder = Path('/mnt/f/Isabelle_muto/compare_merged/fragpipe')
 
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)

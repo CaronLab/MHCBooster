@@ -6,7 +6,7 @@ from pathlib import Path
 from mhcbooster.utils.peptide import replace_uncommon_aas, remove_charge, remove_previous_and_next_aa, remove_modifications
 
 
-def get_ebv_gene_map(fasta_path):
+def get_gene_map(fasta_path, prot_tag):
     gene_map = {}
     description_map = {}
     with open(fasta_path, 'r') as file:
@@ -17,7 +17,7 @@ def get_ebv_gene_map(fasta_path):
                 continue
             line_split = line.split(' ')
             prot_name = line.split(' ')[0][1:]
-            if 'EBV' not in prot_name:
+            if prot_tag not in prot_name:
                 continue
             gene_name = ''
             for s in line_split:
@@ -79,6 +79,29 @@ def get_identified(pep_dfs, q_col, pep_col, prot_col, fdr, min_len, max_len, lab
         peptide_df = pd.concat([peptide_df, identified_df], ignore_index=True)
     peptide_df = peptide_df.groupby('Peptide', as_index=False).agg({'Proteins': 'first', 'Q-value': 'min'})
     return peptide_df
+
+def fill_identified_psm_count(peptide_df, psm_dfs, q_col, pep_col, fdr, min_len, max_len, label_col=None, target_label=None):
+    peptide_df['PSM_Count'] = 0
+    for psm_df in psm_dfs:
+        if label_col is not None:
+            psm_df = psm_df[psm_df[label_col] == target_label]
+        psm_df = psm_df[psm_df[q_col] <= fdr].copy()
+        if len(psm_df) == 0:
+            continue
+        psm_df['Peptide'] = remove_modifications(remove_charge(remove_previous_and_next_aa(psm_df[pep_col].to_numpy())))
+
+        mask = psm_df['Peptide'].str.len().between(min_len, max_len)
+        psm_df = psm_df.loc[mask]
+
+        ebv_psm_count_df = psm_df.groupby('Peptide').size().reset_index(name='PSM_Count')
+        peptide_df =  peptide_df.merge(ebv_psm_count_df[['Peptide', 'PSM_Count']], on='Peptide',
+                                       how='left', suffixes=('', '_add'))
+        if 'PSM_Count_add' in peptide_df.columns:
+            peptide_df['PSM_Count'] = peptide_df['PSM_Count'] + peptide_df['PSM_Count_add'].fillna(0).astype(int)
+            peptide_df = peptide_df.drop('PSM_Count_add', axis=1)
+
+    return peptide_df
+
 
 def get_binders(mhcbooster_folders):
     binders = pd.DataFrame(columns=['Peptide', 'EL_Rank', 'Allele'])
@@ -148,82 +171,111 @@ def search_best_scores(peptide_df, psm_dfs, pep_col, rt_col, msms_col):
 
     return peptide_df
 
-
-def save_ebv(ebv_df, tool_name):
+def anno_gene(df):
     genes = []
     gene_descriptions = []
-    for p in ebv_df['Proteins']:
-        p = sorted(p.split(';'))
-        p = p[0] if len(p[0]) > 0 else p[1]
-        genes.append(gene_map[p])
-        gene_descriptions.append(gene_description_map[gene_map[p]])
-    ebv_df['Gene'] = genes
-    ebv_df['Gene_Description'] = gene_descriptions
+    for p in df['Proteins']:
+        ps = sorted(p.split(';'))
+        if len(ps) == 1:
+            ps = sorted(p.split(','))
+        first_p = ''
+        for pi in ps:
+            if pi.startswith('rev_'):
+                continue
+            first_p = pi
+            break
+        if first_p == '':
+            genes.append('')
+            gene_descriptions.append('')
+        else:
+            genes.append(gene_map[first_p])
+            gene_descriptions.append(gene_description_map[gene_map[first_p]])
+    df['Gene'] = genes
+    df['Gene_Description'] = gene_descriptions
+    return df
 
+def save_ebv(ebv_df, tool_name):
     # Calculate gene statistics
-    gene_stats = ebv_df.groupby('Gene').agg({
-        'Peptide': 'count',
-        'Binder': lambda x: (sum(x == 'Strong'), sum(x == 'Weak')),
-    }).reset_index()
-    gene_stats.columns = ['Gene', 'Total', ('Strong_binders', 'Weak_binders')]
-    gene_stats[['Strong_binders', 'Weak_binders']] = pd.DataFrame(
-        gene_stats[('Strong_binders', 'Weak_binders')].tolist(), index=gene_stats.index)
-    gene_stats['Non-binders'] = gene_stats['Total'] - gene_stats['Strong_binders'] - gene_stats['Weak_binders']
+    # gene_stats = ebv_df.groupby('Gene').agg({
+    #     'Peptide': 'count',
+    #     'Binder': lambda x: (sum(x == 'Strong'), sum(x == 'Weak')),
+    # }).reset_index()
+    # gene_stats.columns = ['Gene', 'Total', ('Strong_binders', 'Weak_binders')]
+    # gene_stats[['Strong_binders', 'Weak_binders']] = pd.DataFrame(
+    #     gene_stats[('Strong_binders', 'Weak_binders')].tolist(), index=gene_stats.index)
+    # gene_stats['Non-binders'] = gene_stats['Total'] - gene_stats['Strong_binders'] - gene_stats['Weak_binders']
+    #
+    # # Create stacked bar plot
+    # plt.figure(figsize=(12, 6))
+    # sns.barplot(data=gene_stats, x='Gene', y='Strong_binders', color='red', label='Strong Binders')
+    # sns.barplot(data=gene_stats, x='Gene', y='Weak_binders', color='orange', label='Weak Binders',
+    #             bottom=gene_stats['Strong_binders'])
+    # sns.barplot(data=gene_stats, x='Gene', y='Non-binders', color='blue', label='Non-binders',
+    #             bottom=gene_stats['Strong_binders'] + gene_stats['Weak_binders'])
+    #
+    # plt.title(f'EBV Gene Statistics - {tool_name}')
+    # plt.xticks(rotation=45, ha='right')
+    # plt.ylabel('Number of Peptides')
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
-    # Create stacked bar plot
-    plt.figure(figsize=(12, 6))
-    sns.barplot(data=gene_stats, x='Gene', y='Strong_binders', color='red', label='Strong Binders')
-    sns.barplot(data=gene_stats, x='Gene', y='Weak_binders', color='orange', label='Weak Binders',
-                bottom=gene_stats['Strong_binders'])
-    sns.barplot(data=gene_stats, x='Gene', y='Non-binders', color='blue', label='Non-binders',
-                bottom=gene_stats['Strong_binders'] + gene_stats['Weak_binders'])
-
-    plt.title(f'EBV Gene Statistics - {tool_name}')
-    plt.xticks(rotation=45, ha='right')
-    plt.ylabel('Number of Peptides')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-    save_folder = Path('/mnt/d/workspace/mhc-booster/experiment/EBV')
+    save_folder = Path('/mnt/d/workspace/mhc-booster/experiment/EBV/test')
     save_folder.mkdir(exist_ok=True, parents=True)
-    ebv_df.to_csv(save_folder / f'JY_25K-1M_EBV_{tool_name}.tsv', sep='\t', index=False)
+    ebv_df.to_csv(save_folder / f'EBV_{tool_name}.tsv', sep='\t', index=False)
+
+def save_all(result_df, tool_name):
+    save_folder = Path('/mnt/d/workspace/mhc-booster/experiment/EBV/test')
+    save_folder.mkdir(exist_ok=True, parents=True)
+    result_df.to_csv(save_folder / f'ALL_{tool_name}.tsv', sep='\t', index=False)
 
 
 def eval_percolator(score_folders, pout_folders, tool_name='FragPipe'):
     result_df = pd.DataFrame()
     for i, (score_folder, pout_folder) in enumerate(zip(score_folders, pout_folders)):
         score_folder, pout_folder = Path(score_folder), Path(pout_folder)
-        psm_dfs, pep_dfs = [], []
+        psm_score_dfs, psm_dfs, pep_dfs = [], [], []
         for pin_file in score_folder.rglob('features.tsv'):
-            psm_df = pd.read_csv(pin_file, sep='\t')
-            psm_dfs.append(psm_df)
+            psm_score_df = pd.read_csv(pin_file, sep='\t')
+            psm_score_dfs.append(psm_score_df)
 
             if tool_name == 'FragPipe':
                 pep_path = pout_folder / pin_file.parent.name.replace('_MHCBooster', '_edited_pep_target.pout')
+                psm_path = pout_folder / pin_file.parent.name.replace('_MHCBooster', '_edited_psm_target.pout')
             else:
                 pep_path = pout_folder / pin_file.parent.name.replace('_MHCBooster', '_pep_target.pout')
+                psm_path = pout_folder / pin_file.parent.name.replace('_MHCBooster', '_psm_target.pout')
             with open(pep_path, 'r') as file:
                 content = file.read().replace(';\t', ';')
             with open(str(pep_path) + '.m', 'w') as file:
                 file.write(content)
-            pep_df = pd.read_csv(str(pep_path) + '.m', sep='\t')
-            pep_dfs.append(pep_df)
+            with open(psm_path, 'r') as file:
+                content = file.read().replace(';\t', ';')
+            with open(str(psm_path) + '.m', 'w') as file:
+                file.write(content)
+            pep_dfs.append(pd.read_csv(str(pep_path) + '.m', sep='\t'))
+            psm_dfs.append(pd.read_csv(str(psm_path) + '.m', sep='\t'))
 
-        peptide_df = get_identified(pep_dfs, 'q-value', 'peptide', 'proteinIds', FDR, 8, 15)
-        peptide_df = search_best_scores(peptide_df, psm_dfs, 'Peptide', 'Prosit_2019_irt_rt_error', 'Prosit_2023_intensity_timsTOF_entropy_score')
+        peptide_df = get_identified(psm_dfs, 'q-value', 'peptide', 'proteinIds', FDR, 8, 14)
+        # peptide_df = get_identified(pep_dfs, 'q-value', 'peptide', 'proteinIds', FDR, 8, 14)
+        peptide_df = search_best_scores(peptide_df, psm_score_dfs, 'Peptide', 'Prosit_2019_irt_rt_error', 'Prosit_2023_intensity_timsTOF_entropy_score')
+        peptide_df = fill_identified_psm_count(peptide_df, psm_dfs, 'q-value', 'peptide', FDR, 8, 14)
         peptide_df['From'] = i
         result_df = pd.concat([result_df, peptide_df], ignore_index=True)
 
     result_df = result_df.groupby('Peptide', as_index=False).agg({
-        'Proteins': 'first', 'Q-value': 'min', 'rt_score': 'min', 'ms2_score': 'max', 'From': lambda x: ','.join(x.astype(str))})
+        'Proteins': 'first', 'Q-value': 'min', 'rt_score': 'min', 'ms2_score': 'max', 'PSM_Count': 'sum', 'From': lambda x: ','.join(x.astype(str))})
     result_df['ID_Frequency'] = result_df['From'].str.count(',') + 1
+    result_df = result_df.merge(binders, on='Peptide', how='left')
+    # result_df = anno_gene(result_df)
+    psm_count = np.sum(result_df['PSM_Count'])
     ebv_df = result_df[result_df['Proteins'].str.contains('EBV') & ~result_df['Proteins'].str.contains('HUMAN')]
-    ebv_df = ebv_df.merge(binders, on='Peptide', how='left')
-    print(f'Sequences: {len(result_df)}. EBV Peptides: {len(ebv_df)}')
+    ebv_psm_count = np.sum(ebv_df['PSM_Count'])
+    print(f'Sequences: {len(result_df)}. PSMs: {psm_count}. EBV Sequences: {len(ebv_df)}. EBV PSMs: {ebv_psm_count}')
 
-    draw_mz_rt_scores(result_df, ebv_df, tool_name)
+    # draw_mz_rt_scores(result_df, ebv_df, tool_name)
     save_ebv(ebv_df, tool_name)
+    save_all(result_df, tool_name)
     return result_df, ebv_df
 
 def eval_mhcbooster(score_folders, peptide_folders):
@@ -231,28 +283,38 @@ def eval_mhcbooster(score_folders, peptide_folders):
     result_df = pd.DataFrame()
     for i, (score_folder, peptide_folder) in enumerate(zip(score_folders, peptide_folders)):
         score_folder, peptide_folder = Path(score_folder), Path(peptide_folder)
-        psm_dfs, pep_dfs = [], []
+        psm_score_dfs, psm_dfs, pep_dfs = [], [], []
         for pin_file in score_folder.rglob('features.tsv'):
-            psm_df = pd.read_csv(pin_file, sep='\t')
-            psm_dfs.append(psm_df)
+            psm_score_df = pd.read_csv(pin_file, sep='\t')
+            psm_score_dfs.append(psm_score_df)
 
             pep_path = peptide_folder / pin_file.parent.name / 'peptide.tsv'
             pep_df = pd.read_csv(str(pep_path), sep='\t')
             pep_dfs.append(pep_df)
+            psm_path = peptide_folder / pin_file.parent.name / 'psm.tsv'
+            psm_df = pd.read_csv(str(psm_path), sep='\t')
+            psm_dfs.append(psm_df)
 
-        peptide_df = get_identified(pep_dfs, 'pep_qvalue', 'sequence', 'protein', FDR, 8, 15, label_col='label', target_label='Target')
-        peptide_df = search_best_scores(peptide_df, psm_dfs, 'Peptide', 'Prosit_2019_irt_rt_error', 'Prosit_2023_intensity_timsTOF_entropy_score')
+        peptide_df = get_identified(psm_dfs, 'psm_qvalue', 'sequence', 'protein', FDR, 8, 14, label_col='label', target_label='Target')
+        # peptide_df = get_identified(pep_dfs, 'pep_qvalue', 'sequence', 'protein', FDR, 8, 14, label_col='label', target_label='Target')
+        peptide_df = search_best_scores(peptide_df, psm_score_dfs, 'Peptide', 'Prosit_2019_irt_rt_error', 'Prosit_2023_intensity_timsTOF_entropy_score')
+        peptide_df = fill_identified_psm_count(peptide_df, psm_dfs, 'psm_qvalue', 'sequence', FDR, 8, 14, label_col='label', target_label='Target')
         peptide_df['From'] = i
         result_df = pd.concat([result_df, peptide_df], ignore_index=True)
 
     result_df = result_df.groupby('Peptide', as_index=False).agg({
-        'Proteins': 'first', 'Q-value': 'min', 'rt_score': 'min', 'ms2_score': 'max', 'From': lambda x: ','.join(x.astype(str))})
+        'Proteins': 'first', 'Q-value': 'min', 'rt_score': 'min', 'ms2_score': 'max', 'PSM_Count': 'sum', 'From': lambda x: ','.join(x.astype(str))})
+    result_df['ID_Frequency'] = result_df['From'].str.count(',') + 1
+    result_df = result_df.merge(binders, on='Peptide', how='left')
+    # result_df = anno_gene(result_df)
+    psm_count = np.sum(result_df['PSM_Count'])
     ebv_df = result_df[result_df['Proteins'].str.contains('EBV') & ~result_df['Proteins'].str.contains('HUMAN')]
-    ebv_df = ebv_df.merge(binders, on='Peptide', how='left')
-    print(f'Sequences: {len(result_df)}. EBV Peptides: {len(ebv_df)}')
+    ebv_psm_count = np.sum(ebv_df['PSM_Count'])
+    print(f'Sequences: {len(result_df)}. PSMs: {psm_count}. EBV Sequences: {len(ebv_df)}. EBV PSMs: {ebv_psm_count}')
 
-    draw_mz_rt_scores(result_df, ebv_df, 'MHCBooster')
+    # draw_mz_rt_scores(result_df, ebv_df, 'MHCBooster')
     save_ebv(ebv_df, 'MHCBooster')
+    save_all(result_df, 'MHCBooster')
     return result_df, ebv_df
 
 
@@ -280,38 +342,44 @@ if __name__ == '__main__':
         # '/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/percolator',
         # '/mnt/d/data/JY_500M/old/percolator',
         # '/mnt/d/data/JY_500M/new/percolator',
-        # '/mnt/d/workspace/mhc-booster/experiment/JY_Fractionation/percolator',
+        # '/mnt/d/data/JY_500M/new_test/percolator',
+        '/mnt/d/workspace/mhc-booster/experiment/paper/JY_Fractionation/percolator',
         # '/mnt/d/data/JY100M_Val_DDA_102824/percolator',
         # '/mnt/d/data/JY_EL4_Class1_DDA_SK_MS_013125/percolator',
         # '/mnt/d/data/JY_PC-9_50M_ClassI_MS_DDA/percolator',
         # '/mnt/d/workspace/mhc-booster/experiment/RA_Fractionation/percolator',
-        '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/percolator',
+        # '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/percolator',
     ]
     fragpipe_folders = [
         # '/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/fragpipe',
         # '/mnt/d/data/JY_500M/old/fragpipe',
         # '/mnt/d/data/JY_500M/new/fragpipe',
-        # '/mnt/d/workspace/mhc-booster/experiment/JY_Fractionation/fragpipe',
+        # '/mnt/d/data/JY_500M/new_test/fragpipe',
+        '/mnt/d/workspace/mhc-booster/experiment/paper/JY_Fractionation/fragpipe',
         # '/mnt/d/data/JY100M_Val_DDA_102824/fragpipe',
         # '/mnt/d/data/JY_EL4_Class1_DDA_SK_MS_013125/fragpipe',
         # '/mnt/d/data/JY_PC-9_50M_ClassI_MS_DDA/fragpipe',
         # '/mnt/d/workspace/mhc-booster/experiment/RA_Fractionation/fragpipe',
-        '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/fragpipe',
+        # '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/fragpipe',
     ]
     mhcbooster_folders = [
         # '/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mhcbooster',
         # '/mnt/d/data/JY_500M/old/mhcbooster',
         # '/mnt/d/data/JY_500M/new/mhcbooster',
-        # '/mnt/d/workspace/mhc-booster/experiment/JY_Fractionation/mhcbooster',
+        # '/mnt/d/data/JY_500M/new_test/mhcbooster',
+        '/mnt/d/workspace/mhc-booster/experiment/paper/JY_Fractionation/mhcbooster',
         # '/mnt/d/data/JY100M_Val_DDA_102824/mhcbooster',
         # '/mnt/d/data/JY_EL4_Class1_DDA_SK_MS_013125/mhcbooster',
         # '/mnt/d/data/JY_PC-9_50M_ClassI_MS_DDA/mhcbooster',
         # '/mnt/d/workspace/mhc-booster/experiment/RA_Fractionation/mhcbooster',
-        '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/mhcbooster',
+        # '/mnt/e/data/Low-input_microIP_JY_Moh_DDA_new/mhcbooster',
     ]
     binders = get_binders(mhcbooster_folders)
-    gene_map, gene_description_map = get_ebv_gene_map('/mnt/d/data/JY_1_10_25M/2024-09-03-decoys-contam-Human_EBV_GD1_B95.fasta')
+    gene_map, gene_description_map = get_gene_map(
+        '/mnt/d/data/JY_1_10_25M/2024-09-03-decoys-contam-Human_EBV_GD1_B95.fasta', '')
     eval_percolator(mhcbooster_folders, percolator_folders, 'Percolator')
     eval_percolator(mhcbooster_folders, fragpipe_folders, 'FragPipe')
     eval_mhcbooster(mhcbooster_folders, mhcbooster_folders)
     print('Finished.')
+
+    binders = get_binders(mhcbooster_folders)

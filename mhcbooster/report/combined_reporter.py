@@ -359,7 +359,7 @@ class CombinedReporter:
             input_log_path = pepxml_path.parent / 'input_files.txt'
             mzml_path = read_from_log('mzml=', input_log_path)
             assert mzml_path is not None, f'Failed to find mzml file in {input_log_path}'
-            mzml_name = Path(mzml_path).stem.replace('_uncalibrated', '')
+            mzml_name = Path(mzml_path).stem.replace('_uncalibrated', '').replace('_calibrated', '')
             psms_path = pepxml_path.parent / f'{mzml_name}.psmpkl'
             peaks_path = pepxml_path.parent / f'{mzml_name}.peakpkl'
             psms_paths.append(str(psms_path.resolve()))

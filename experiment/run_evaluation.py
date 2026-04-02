@@ -38,8 +38,9 @@ class Evaluation:
             if qvalue_col:
                 pep_df = pep_df[pep_df[qvalue_col] <= FDR]
 
-            # prot_col = 'proteinIds' if 'proteinIds' in pep_df.columns else 'protein' if 'protein' in pep_df.columns else 'Proteins'
-            # pep_df = pep_df[pep_df[prot_col].str.contains('EBV') & ~pep_df[prot_col].str.contains('HUMAN')]
+            prot_col = 'proteinIds' if 'proteinIds' in pep_df.columns else 'Protein' if 'Protein' in pep_df.columns\
+                else 'Proteins' if 'Proteins' in pep_df.columns else 'protein'
+            pep_df = pep_df[pep_df[prot_col].str.contains('WP') & ~pep_df[prot_col].str.contains('HUMAN')]
 
             peptides = pep_df[pep_col].to_numpy()
             peptides = remove_previous_and_next_aa(peptides)
@@ -58,8 +59,10 @@ class Evaluation:
                     (np.char.str_len(pep_filtered) >= self.min_len) * (np.char.str_len(pep_filtered) <= self.max_len)]
             result_stat.loc[i] = [filename, len(pep_filtered), len(np.unique(pep_filtered))]
             self.sequences.update(pep_filtered)
-        print(len(self.sequences))
-        print(','.join(self.sequences))
+            print(filename)
+            print(','.join(np.unique(pep_filtered)))
+        # print(len(self.sequences))
+        # print(','.join(self.sequences))
         self.sequences.clear()
         return result_stat
 
@@ -69,6 +72,15 @@ class Evaluation:
             result_df = self.base_eval_pep(mokapot_folder, pep_file_suffix='.mokapot.peptides.txt', sep='\t', pep_col='Peptide',
                                       qvalue_col='mokapot q-value', label_col='Label', target_label=True, mod_col=None)
             result_df.columns = ['File name', 'mokapot_pep', 'mokapot_seq']
+            return result_df
+
+    def eval_midiaid(self):
+        mokapot_folder = self.result_folder/'midiaid'
+        if mokapot_folder.exists():
+            result_df = self.base_eval_pep(mokapot_folder, pep_file_suffix='.mokapot.peptides.txt', sep='\t', pep_col='peptide',
+                                      qvalue_col='mokapot q-value', label_col='is_target', target_label=True, mod_col=None)
+            result_df.columns = ['File name', 'mokapot_pep', 'mokapot_seq']
+            result_df['File name'] = result_df['File name'].apply(lambda x: x.split('.')[0])
             return result_df
 
     def eval_percolator(self):
@@ -137,6 +149,16 @@ class Evaluation:
         mhcbooster_folder = self.result_folder / folder
         if mhcbooster_folder.exists():
             result_df = self.base_eval_pep(mhcbooster_folder, pep_file_suffix='peptide.tsv', sep='\t',
+                                           pep_col='Peptide',
+                                           qvalue_col='Pep Qvalue', label_col='Label', target_label='Target',
+                                           mod_col=None)
+            result_df.columns = ['File name', f'{folder}_pep', f'{folder}_seq']
+            return result_df
+
+    def eval_old_mhcbooster(self, folder='mhcbooster'):
+        mhcbooster_folder = self.result_folder / folder
+        if mhcbooster_folder.exists():
+            result_df = self.base_eval_pep(mhcbooster_folder, pep_file_suffix='peptide.tsv', sep='\t',
                                            pep_col='peptide',
                                            qvalue_col='pep_qvalue', label_col='label', target_label='Target',
                                            mod_col=None)
@@ -145,7 +167,8 @@ class Evaluation:
 
     def run(self):
         result_dfs = []
-        result_dfs.append(self.eval_percolator())
+        # result_dfs.append(self.eval_midiaid())
+        # result_dfs.append(self.eval_percolator())
         # philosopher_df = self.eval_philosopher()
         # mokapot_df = self.eval_mokapot()
         # ms2rescore_df = self.eval_ms2rescore()
@@ -162,18 +185,20 @@ class Evaluation:
         for df in result_dfs:
             if df is not None:
                 result_df = pd.merge(result_df, df, on='File name', how='outer') if not result_df.empty else df
+        # result_df.to_csv(os.path.join(self.result_folder, 'result_stats_SARS.tsv'), sep='\t', index=False)
+        result_df.to_csv(os.path.join(self.result_folder, 'result_stats_WP.tsv'), sep='\t', index=False)
         # result_df.to_csv(os.path.join(self.result_folder, 'result_stats.tsv'), sep='\t', index=False)
-        result_df.to_csv(os.path.join(self.result_folder, 'result_stats.tsv'), sep='\t', index=False)
         print(result_df)
 
 if __name__ == '__main__':
     FDR = 0.01
-    # evaluation = Evaluation('JY_low_microIP_I', min_len=8, max_len=14)
+    evaluation = Evaluation('JY_low_microIP_I', min_len=8, max_len=14)
     # evaluation = Evaluation('RA_Fractionation', min_len=8, max_len=15)
     # evaluation = Evaluation('JY_100K', min_len=8, max_len=15)
-    evaluation = Evaluation('JY_1_10_25M_rerun/msfragger', min_len=8, max_len=14)
-    # evaluation.result_folder = Path('/mnt/d/data/JY_500M/old')
-    # evaluation.result_folder = Path('/mnt/d/data/JY_500M/new')
+    # evaluation = Evaluation('paper/JY_1_10_25M/msfragger', min_len=8, max_len=14)
+    evaluation.result_folder = Path('/mnt/f/Isabelle_muto/compare_merged')
+    # evaluation.result_folder = Path('/mnt/f/MIDIA_dilution')
+    # evaluation.result_folder = Path('/mnt/f/JY_Hela_EBV')
     # evaluation.result_folder = Path('/mnt/d/data/JY100M_Val_DDA_102824')
     # evaluation = Evaluation('JY_Fractionation', min_len=8, max_len=15)
     # evaluation.result_folder = Path('/mnt/d/data/JY_PC-9_50M_ClassI_MS_DDA')
@@ -182,7 +207,8 @@ if __name__ == '__main__':
     # evaluation.min_len = 12
     # evaluation.max_len = 21
     # evaluation.result_folder = Path('/mnt/e/data/BigIP_JY_500M_HLA-I')
-    evaluation.result_folder = Path('/mnt/e/data/PXD058436')
+    # evaluation.result_folder = Path('/mnt/e/data/9004_II')
+    # evaluation.result_folder = Path('/mnt/e/data/9087_II')
     # evaluation.eval_percolator()
     # evaluation.eval_fragpipe()
     # evaluation.eval_mhcbooster()
@@ -203,7 +229,7 @@ if __name__ == '__main__':
     #                                          mod_col=None)
     #     result_df.columns = ['File name', f'{folder_name}_pep', f'{folder_name}_seq']
     #     result_dfs.append(result_df)
-    # 
+    #
     # result_df = pd.DataFrame()
     # for df in result_dfs:
     #     if df is not None:

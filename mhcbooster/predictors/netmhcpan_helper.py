@@ -93,7 +93,7 @@ class NetMHCpanHelper(BasePredictorHelper):
 
         self.predictions = {pep: {} for pep in self.peptides}
 
-    def _format_class_I_alleles(self, alleles: List[str]):
+    def _format_class_I_alleles(self, alleles: List[str]): #TODO H-2-Db support
         avail_allele_path = Path(__file__).parent.parent/'third_party'/'netMHCpan-4.1'/'Linux_x86_64'/'data'/'MHC_pseudo.dat'
         avail_alleles = [line.split()[0].replace(':', '') for line in open(avail_allele_path).readlines()]
 
@@ -135,6 +135,7 @@ class NetMHCpanHelper(BasePredictorHelper):
             if len(db_data) > 0:
                 for i, pep in enumerate(peptides[matched_mask]):
                     self.predictions[self.reverse_lookup[pep]][allele] = db_data[i]
+            print(f'Matched {len(db_data)} pMHCs from DB. Predicting on {len(keys) - len(db_data)} remaining pMHCs.')
             if len(db_data) == len(keys):
                 continue
 
@@ -228,17 +229,21 @@ class NetMHCpanHelper(BasePredictorHelper):
             self.predictions[self.reverse_lookup[peptide]][allele] = value
             keys.append(key)
             values.append(value)
-        self.save_to_db(keys=keys, values=values)
+        return keys, values
 
 
     def _aggregate_netmhcpan_results(self):
+        keys, values = [], []
         for job in self.jobs:
             if job.returncode != 0:
                 print(job.stdout.decode())
                 print(job.stderr.decode())
                 print('ERROR: There was a problem in NetMHCpan. See the above about for possible information.')
                 exit(1)
-            self._parse_netmhc_output(job.stdout.decode())
+            j_keys, j_values = self._parse_netmhc_output(job.stdout.decode())
+            keys += j_keys
+            values += j_values
+        self.save_to_db(keys=keys, values=values)
 
     def _clear_jobs(self):
         self.jobs = []

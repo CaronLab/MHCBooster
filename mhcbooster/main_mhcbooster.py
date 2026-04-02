@@ -23,7 +23,7 @@ from mhcbooster.predictors.netmhcpan_helper import NetMHCpanHelper
 from mhcbooster.predictors.mhcflurry_helper import MhcFlurryHelper
 from mhcbooster.predictors.bigmhc_helper import BigMhcHelper
 from mhcbooster.predictors.mixmhc2pred_helper import MixMhc2PredHelper
-from mhcbooster.predictors.peptdeep_helper import PeptDeepHelper
+# from mhcbooster.predictors.peptdeep_helper import PeptDeepHelper
 from mhcbooster.predictors.autort_helper import AutortHelper
 from mhcbooster.predictors.deeplc_helper import DeepLCHelper
 from mhcbooster.predictors.im2deep_helper import IM2DeepHelper
@@ -436,17 +436,17 @@ class MHCBooster:
         im2deep_helper.draw_prediction_distributions(predictions, self.labels)
 
 
-    def add_peptdeep_predictions(self):
-        """
-        Run AlphaPeptDeep and add presentation predictions to the training feature matrix.
-
-        :return: None
-        """
-        peptdeep_helper = PeptDeepHelper(self.peptides, self.raw_data, self.report_directory)
-        peptdeep_helper.predict_df()
-        predictions = peptdeep_helper.score_df()
-        self.feature_matrix = self.feature_matrix.join(predictions)
-        peptdeep_helper.draw_prediction_distributions(predictions, self.labels)
+    # def add_peptdeep_predictions(self):
+    #     """
+    #     Run AlphaPeptDeep and add presentation predictions to the training feature matrix.
+    #
+    #     :return: None
+    #     """
+    #     peptdeep_helper = PeptDeepHelper(self.peptides, self.raw_data, self.report_directory)
+    #     peptdeep_helper.predict_df()
+    #     predictions = peptdeep_helper.score_df()
+    #     self.feature_matrix = self.feature_matrix.join(predictions)
+    #     peptdeep_helper.draw_prediction_distributions(predictions, self.labels)
 
 
     def add_koina_predictions(self):
@@ -609,6 +609,13 @@ class MHCBooster:
             force_rerun=True,
             **kwargs):
 
+        self.rt_predictors = rt_predictors if rt_predictors is not None else []
+        self.ms2_predictors = ms2_predictors if ms2_predictors is not None else []
+        self.ccs_predictors = ccs_predictors if ccs_predictors is not None else []
+        self.app_predictors = app_predictors if app_predictors is not None else []
+        self.auto_predict_predictor = auto_predict_predictor
+        self.fine_tune = fine_tune
+        self.koina_server_url = koina_server_url
 
         self.report_directory = str(report_directory)
         report_directory = Path(report_directory)
@@ -627,13 +634,16 @@ class MHCBooster:
 
         self.mzml_path = None
         if mzml_folder is not None:
-            mzml_paths = Path(mzml_folder).rglob('*.mzML')
-            mzml_map = {path.stem.replace('_uncalibrated', ''): str(path.expanduser().resolve()) for path in mzml_paths}
+            mzml_paths = Path(mzml_folder).rglob('*_calibrated.mzML')
+            if len(list(mzml_paths)) == 0:
+                mzml_paths = Path(mzml_folder).rglob('*.mzML')
+            mzml_map = {path.stem.replace('_uncalibrated', '').replace('_calibrated', ''): str(path.expanduser().resolve()) for path in mzml_paths}
             mzml_name = self.filepath.name.replace('_edited.pin', '').replace('.pin', '')
             assert mzml_name in mzml_map.keys(), f'mzML file not found: {mzml_folder}/{mzml_name}.mzML '
             self.mzml_path = mzml_map[mzml_name]
             append_log(f'mzml={self.mzml_path}', self.input_log_path, False)
-            if '_uncalibrated.' in self.mzml_path:
+            if '_uncalibrated.' in self.mzml_path or '_calibrated.' in self.mzml_path or '_diatracer.' in self.mzml_path or \
+                '_Q1.' in self.mzml_path or '_Q2.' in self.mzml_path or '_Q3.' in self.mzml_path:
                 self.spec_names, self.spec_indices, self.exp_rts, self.exp_ims, self.exp_ms2s = \
                     get_rt_ccs_ms2_from_msfragger_mzml(self.mzml_path, self.raw_data['ScanNr'],
                                                        self.raw_data['ExpMass'].astype(float), self.charges)
@@ -648,14 +658,6 @@ class MHCBooster:
         if random_seed is None:
             random_seed = self.random_seed
         self._set_seed(random_seed)
-
-        self.rt_predictors = rt_predictors if rt_predictors is not None else []
-        self.ms2_predictors = ms2_predictors if ms2_predictors is not None else []
-        self.ccs_predictors = ccs_predictors if ccs_predictors is not None else []
-        self.app_predictors = app_predictors if app_predictors is not None else []
-        self.auto_predict_predictor = auto_predict_predictor
-        self.fine_tune = fine_tune
-        self.koina_server_url = koina_server_url
 
         if len(self.app_predictors) > 0:
             self.app_predictors = [p.lower() for p in self.app_predictors]

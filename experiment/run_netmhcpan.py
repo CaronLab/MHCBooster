@@ -12,13 +12,13 @@ from mhcbooster.predictors.netmhcpan_helper import NetMHCpanHelper
 
 def run_netmhcpan(peptides):
     # netmhcpan = NetMHCpanHelper(peptides=peptides, alleles=ALLELES, n_threads=N_THREADS)
-
-    netmhcpan = NetMHCpanHelper(alleles=ALLELES, n_threads=N_THREADS)
-    netmhcpan.min_length = MIN_LENGTH
-    netmhcpan.max_length = MAX_LENGTH
-    netmhcpan.add_peptides(peptides)
-    netmhcpan.netmhcpan_peptides = replace_uncommon_aas(netmhcpan.peptides)
-    netmhcpan.predictions = {x: {} for x in netmhcpan.peptides}
+    netmhcpan = NetMHCpanHelper(peptides=peptides, alleles=ALLELES, mhc_class='I')
+    # netmhcpan = NetMHCpanHelper(alleles=ALLELES, n_threads=N_THREADS)
+    # netmhcpan.min_length = MIN_LENGTH
+    # netmhcpan.max_length = MAX_LENGTH
+    # netmhcpan.add_peptides(peptides)
+    # netmhcpan.netmhcpan_peptides = replace_uncommon_aas(netmhcpan.peptides)
+    # netmhcpan.predictions = {x: {} for x in netmhcpan.peptides}
 
     pred_df = netmhcpan.predict_df()
     assert len(pred_df) / len(ALLELES) == len(peptides)
@@ -145,6 +145,9 @@ def _base_eval_pep(folder, pep_file_suffix, sep, pep_col, qvalue_col, label_col=
 def eval_mokapot(folder):
     _base_eval_pep(folder, pep_file_suffix='.mokapot.peptides.txt', sep='\t', pep_col='Peptide', qvalue_col='mokapot q-value', label_col='Label', target_label=True, mod_col=None)
 
+def eval_midiaid(folder):
+    _base_eval_pep(folder, pep_file_suffix='.mokapot.peptides.txt', sep='\t', pep_col='peptide', qvalue_col='mokapot q-value', label_col='is_target', target_label=True, mod_col=None)
+
 def eval_percolator(folder):
     paths = Path(folder).rglob(pattern='*' + '_pep_target.pout')
     for i, path in enumerate(paths):
@@ -166,27 +169,32 @@ def eval_mhcvalidator(folder):
     _base_eval_pep(folder, pep_file_suffix='.MhcValidator_annotated.tsv', sep='\t', pep_col='Peptide', qvalue_col='mhcv_pep-level_q-value', label_col='mhcv_label', target_label=1, mod_col=None)
 
 def eval_mhcbooster(folder):
-    _base_eval_pep(folder, pep_file_suffix='peptide.tsv', sep='\t', pep_col='peptide', qvalue_col='pep_qvalue', label_col='label', target_label='Target', mod_col=None)
+    _base_eval_pep(folder, pep_file_suffix='peptide.tsv', sep='\t', pep_col='Peptide', qvalue_col='Pep Qvalue', label_col='Label', target_label='Target', mod_col=None)
 
 
 if __name__ == '__main__':
 
     N_THREADS = os.cpu_count() // 2
 
-    # ALLELES = ['HLA-A0201', 'HLA-B0702', 'HLA-C0702']
-    ALLELES = ['HLA-A0220','HLA-A6801','HLA-B3503','HLA-B3901','HLA-C0401','HLA-C0702']
+    ALLELES = ['HLA-A0201', 'HLA-B0702', 'HLA-C0702']
+    # ALLELES = ['HLA-A0220','HLA-A6801','HLA-B3503','HLA-B3901','HLA-C0401','HLA-C0702']
     # ALLELES = ['HLA-A0101', 'HLA-A0202', 'HLA-B5701', 'HLA-B4403', 'HLA-C0602', 'HLA-C1602']
     # ALLELES = ['HLA-A0101', 'HLA-A2415', 'HLA-B5701', 'HLA-C0602']
     # ALLELES = ['HLA-A0301', 'HLA-A6802', 'HLA-B0702', 'HLA-B1402', 'HLA-C0702', 'HLA-C0802']
 
     MIN_LENGTH = 8
-    MAX_LENGTH = 15
+    MAX_LENGTH = 14
     # MIN_LENGTH = 9
     # MAX_LENGTH = 25
 
     # eval_mokapot(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mokapot')
-    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/percolator')
+    # eval_percolator(folder='/mnt/f/JY_1_2_5M/percolator')
     # eval_ms2rescore(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/ms2rescore')
-    eval_percolator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/fragpipe')
+    # eval_percolator(folder='/mnt/f/JY_1_2_5M/fragpipe')
     # eval_mhcvalidator(folder='/mnt/d/workspace/mhc-booster/experiment/JY_1_10_25M_rerun/msfragger/mhcvalidator')
-    eval_mhcbooster(folder='/mnt/d/workspace/mhc-booster/experiment/JY_100K/mhcbooster')
+    # eval_mhcbooster(folder='/mnt/f/JY_1_2_5M/mhcbooster')
+    eval_percolator(folder='/mnt/f/directDIA/diatracer/percolator')
+    eval_percolator(folder='/mnt/f/directDIA/diatracer/fragpipe')
+    eval_mhcbooster(folder='/mnt/f/directDIA/diatracer/mhcbooster')
+    # eval_midiaid(folder='/mnt/f/MIDIA_test/midiaid')
+

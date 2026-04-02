@@ -15,12 +15,16 @@ def _extract_rt(spectrum):
 
 def _extract_mz(spectrum):
     precursor = spectrum['precursorList']['precursor'][0]
-    precursor_mz = precursor['selectedIonList']['selectedIon'][0]['selected ion m/z']
     if 'isolationWindow' in precursor.keys():
         precursor_mz = precursor['isolationWindow']['isolation window target m/z'] #TODO
-        lower_offset = precursor['isolationWindow']['isolation window lower offset'] + 0.01
-        upper_offset = precursor['isolationWindow']['isolation window upper offset'] + 0.01
+        if 'isolation window lower offset' in precursor['isolationWindow'].keys():
+            lower_offset = precursor['isolationWindow']['isolation window lower offset'] + 0.01
+            upper_offset = precursor['isolationWindow']['isolation window upper offset'] + 0.01
+        else:
+            lower_offset = 0.1
+            upper_offset = 0.1
     else:
+        precursor_mz = precursor['selectedIonList']['selectedIon'][0]['selected ion m/z']
         lower_offset = 0.1
         upper_offset = 0.1
     return precursor_mz, lower_offset, upper_offset
@@ -260,7 +264,7 @@ def get_rt_ccs_ms2_from_msfragger_mzml(mzml_path, scan_nrs, masses, charges):
     spec_idx_map = {}
     ms2_list, ms2_names = deque(), deque()
     scan_nr_idx = 0
-    for i, data in enumerate(tqdm(mzml_file, desc='Loading related MS2 spectrum to memory...')):
+    for i, data in enumerate(tqdm(mzml_file, desc='Loading related MS2 spectrum to memory...', mininterval=1.0)):
         tmp_scan_nr = data['spectrum title'].rsplit('.', 2)[-2]
         if tmp_scan_nr == scan_nrs_unique[scan_nr_idx]:
             ms2_list.append(data)

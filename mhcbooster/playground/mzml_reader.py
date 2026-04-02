@@ -31,9 +31,28 @@ import xml.etree.ElementTree as ET
 #             break
 
 # 6090/s
-from pyteomics import mzml, mgf
+# from pyteomics import mzml, mgf
+# start_time = time.time()
+# for l in mzml.read('/mnt/d/data/JY_1_10_25M/msconvert/JY_Class1_1M_DDA_60min_Slot1-10_1_541.mzML', decode_binary=False):
+#     print(l['index'], l['id'])
+#     if time.time() - start_time > 10:
+#         break
+
+# from pyteomics import mzml
+# start_time = time.time()
+# for l in mzml.read('/mnt/f/MIDIA_dilution/mzml/M2716_calibrated.mzML'):
+#     if l['index'] % 100 == 0:
+#         print(l['index'], l['id'])
+#     if time.time() - start_time > 10:
+#         break
+
+from pyopenms import MzMLFile, MSExperiment
 start_time = time.time()
-for l in mzml.read('/mnt/d/data/JY_1_10_25M/msconvert/JY_Class1_1M_DDA_60min_Slot1-10_1_541.mzML', decode_binary=False):
-    print(l['index'], l['id'])
+exp = MSExperiment()
+mzml_file = MzMLFile().load('/mnt/f/MIDIA_dilution/mzml/M2716_calibrated.mzML', exp)
+print(time.time() - start_time)
+for i, spectrum in enumerate(mzml_file):
+    if i % 100 == 0:
+        print(i, spectrum.getRT())
     if time.time() - start_time > 10:
         break
