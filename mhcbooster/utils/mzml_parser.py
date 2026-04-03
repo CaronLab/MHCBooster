@@ -112,22 +112,38 @@ def get_rt_ccs_ms2_from_mzml(mzml_path, scan_nrs, masses, charges):
         return get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges)
 
 
+def _extract_scan_number(native_id):
+    """Extract scan number from nativeID string like 'controllerType=0 controllerNumber=1 scan=28'."""
+    import re
+    match = re.search(r'scan=(\d+)', native_id)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
     """
     Read an msconvert-produced mzML and extract RT, CCS, MS2 for given scan numbers.
     Handles timsTOF neighbor-scan matching for IM data.
+    
+    Note: scan_nrs may be native instrument scan numbers (non-contiguous, can exceed spectrum count).
+    We build a scan_number → spectrum_index mapping from nativeID to handle this correctly.
     """
     target_mzs = masses / charges + PROTON_MASS
     exp = _load_experiment(mzml_path)
     n_spectra = exp.getNrSpectra()
 
-    # Check if this has IM data
-    ms2_sample = None
-    for i in range(n_spectra):
-        s = exp.getSpectrum(i)
-        if s.getMSLevel() == 2:
-            ms2_sample = s
-            break
+    # Build scan_number → spectrum_index map from nativeID
+    # nativeID format: "controllerType=0 controllerNumber=1 scan=28"
+    scan_to_idx = {}
+    for idx in range(n_spectra):
+        native_id = exp.getSpectrum(idx).getNativeID()
+        scan_num = _extract_scan_number(native_id)
+        if scan_num is not None:
+            scan_to_idx[scan_num] = idx
+        else:
+            # Fallback: use 1-based index
+            scan_to_idx[idx + 1] = idx
 
     spec_names = [None] * len(scan_nrs)
     spec_indices = [None] * len(scan_nrs)
@@ -138,7 +154,10 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
     exp_ces = [None] * len(scan_nrs)
 
     for i, scan_nr in tqdm(enumerate(scan_nrs), total=len(scan_nrs), desc='Extracting RTs, CCSs, MS2s...'):
-        idx = scan_nr - 1
+        idx = scan_to_idx.get(scan_nr, scan_nr - 1)
+        if idx < 0 or idx >= n_spectra:
+            print(f'WARNING: scan_nr {scan_nr} maps to idx {idx} which is out of bounds (n_spectra={n_spectra}). Skipping.')
+            continue
         spec_indices[i] = idx
         spectrum = exp.getSpectrum(idx)
         spec_names[i] = _get_spectrum_title(spectrum)
@@ -156,9 +175,9 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
 
         # Search neighbors for timsTOF data (same RT, different precursor windows)
         matched = False
-        # Search left
-        for j in range(1, scan_nr):
-            left_idx = scan_nr - j - 1
+        # Search left (use spectrum index, not scan number)
+        for j in range(1, idx + 1):
+            left_idx = idx - j
             if left_idx < 0:
                 break
             spectrum_l = exp.getSpectrum(left_idx)
@@ -179,9 +198,9 @@ def get_rt_ccs_ms2_from_msconvert_mzml(mzml_path, scan_nrs, masses, charges):
         if matched:
             continue
 
-        # Search right
-        for j in range(1, n_spectra - scan_nr + 1):
-            right_idx = scan_nr + j - 1
+        # Search right (use spectrum index, not scan number)
+        for j in range(1, n_spectra - idx):
+            right_idx = idx + j
             if right_idx >= n_spectra:
                 break
             spectrum_r = exp.getSpectrum(right_idx)
