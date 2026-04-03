@@ -4,7 +4,7 @@ import re
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from pyteomics import mzml
+from pyopenms import MzMLFile, MSExperiment
 
 
 def split(result_path):
@@ -56,9 +56,12 @@ def convert_to_msfragger_pin(result_path):
         if len(result_df) > 0:
             if not str(result_df.loc[0, 'ScanNr']).isnumeric():
                 mzml_path = str(path.parent.parent / path.stem) + '.mzML'
+                # Build nativeID -> 1-based index map using pyopenms
+                exp = MSExperiment()
+                MzMLFile().load(mzml_path, exp)
                 scannr_map = {}
-                for spectrum in mzml.read(mzml_path, decode_binary=False):
-                    scannr_map[spectrum['id']] = spectrum['index'] + 1
+                for i in range(exp.getNrSpectra()):
+                    scannr_map[exp.getSpectrum(i).getNativeID()] = i + 1
                 result_df['ScanNr'] = result_df['ScanNr'].apply(lambda x: str(scannr_map[x]))
             else:
                 result_df['ScanNr'] = result_df['ScanNr'].astype(str)
@@ -78,8 +81,4 @@ if __name__ == '__main__':
     param_path = Path('/mnt/d/workspace/mhc-booster/pipeline_setup/sage_orbi.json')
     fasta_path = Path('/mnt/d/data/HL-60/2024-11-18-decoys-contam-2024_11_18_human.fasta.fas')
     mzml_path = Path('/mnt/d/data/HL-60/mzML')
-    # param_path = Path('/mnt/d/workspace/mhc-booster/pipeline_setup/sage.json')
-    # fasta_path = Path('/mnt/d/data/JY_1_10_25M/2024-09-03-decoys-contam-Human_EBV_GD1_B95.fasta')
-    # mzml_path = Path('/mnt/d/data/JY_1_10_25M/msconvert')
     run_sage(param_path, fasta_path, mzml_path)
-    # convert_to_msfragger_pin('/mnt/d/data/HL-60/mzML')
