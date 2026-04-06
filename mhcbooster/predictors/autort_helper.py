@@ -120,7 +120,7 @@ class AutortHelper(BasePredictorHelper):
                 print(command)
                 subprocess.run(command, shell=True)
                 pred_df = pd.read_csv(str(result_file_path) + '.tsv', sep='\t')
-                self.save_to_db(keys=self.peptide_df['sequence'][~matched_mask], values=pred_df['y_pred'])
+                self.save_to_db(keys=self.peptide_df['sequence'][~matched_mask], values=pred_df['y_pred'].tolist())
                 self.pred_df.loc[~matched_mask, 'y_pred'] = pred_df['y_pred'].values
                 os.remove(input_file.name)
                 subprocess.run(f'rm {result_file.name}*', shell=True)

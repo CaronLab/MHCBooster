@@ -52,6 +52,8 @@ class BasePredictorHelper:
         if db_name not in MEMORY_DB:
             MEMORY_DB[db_name] = {}
 
+        keys = list(keys)
+        values = list(values)
         for i in range(len(keys)):
             MEMORY_DB[db_name][keys[i]] = zlib.compress(pickle.dumps(values[i], protocol=4))
 
