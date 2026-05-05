@@ -61,10 +61,13 @@ class BasePredictorHelper:
 
         keys = list(keys)
         values = list(values)
-        for i in range(len(keys)):
-            MEMORY_DB[db_name][keys[i]] = zlib.compress(pickle.dumps(values[i], protocol=4))
+        unique_values = {}
+        for i, key in enumerate(keys):
+            unique_values[key] = values[i]
+        for key, value in unique_values.items():
+            MEMORY_DB[db_name][key] = zlib.compress(pickle.dumps(value, protocol=4))
 
-        print(f'Saving {len(keys)} KVs to db {db_name} took {time.time() - start_time:.2f} seconds')
+        print(f'Saving {len(unique_values)} KVs to db {db_name} took {time.time() - start_time:.2f} seconds')
         return True
 
     def calc_rt_scores(self, exp_rts: np.ndarray, pred_rts: np.ndarray, predictor_name: str = None) -> pd.DataFrame:
