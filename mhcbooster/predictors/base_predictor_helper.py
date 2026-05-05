@@ -31,15 +31,22 @@ class BasePredictorHelper:
         db_name = predictor_name if predictor_name is not None else self.predictor_name
 
         # db_path = str((Path(self.report_directory).parent / f'{db_name}.db').resolve())
+        keys = list(keys)
         matched_mask = np.zeros(len(keys), dtype=bool)
         data = []
         if len(keys) == 0 or not db_name in MEMORY_DB:
             return data, matched_mask
         db = MEMORY_DB[db_name]
-        for i, key in enumerate(keys):
+
+        cached_values = {}
+        for key in dict.fromkeys(keys):
             if key in db:
+                cached_values[key] = pickle.loads(zlib.decompress(db[key]))
+
+        for i, key in enumerate(keys):
+            if key in cached_values:
                 matched_mask[i] = True
-                data.append(pickle.loads(zlib.decompress(db[key])))
+                data.append(cached_values[key])
         print(f'Loading from db {db_name} took {time.time() - start_time:.2f} seconds')
         return data, matched_mask
 
