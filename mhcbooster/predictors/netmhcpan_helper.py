@@ -60,12 +60,11 @@ class NetMHCpanHelper(BasePredictorHelper):
             self.min_length = 9
 
         self.peptides = []
+        self.netmhcpan_peptides = {}
+        self.netmhcpan_peptide_to_originals = {}
+        self.reverse_lookup = {}
         if peptides is not None:
             self.add_peptides(peptides)
-            self.netmhcpan_peptides = replace_uncommon_aas(self.peptides)
-            self.reverse_lookup = {value: key for key, value in self.netmhcpan_peptides.items()}
-        else:
-            self.netmhcpan_peptides = dict()
         self.predictions = {x: {} for x in self.peptides}
         self.wd = Path(output_dir) if output_dir else Path(os.getcwd())
         self.temp_dir = Path(tmp_dir) / 'PyNetMHCpan'
@@ -90,8 +89,19 @@ class NetMHCpanHelper(BasePredictorHelper):
             if len(p) < self.min_length:
                 raise ValueError(f"One or more peptides is shorter than the minimum length of {self.min_length} mers")
         self.peptides += peptides
+        self._refresh_netmhcpan_peptide_maps()
 
         self.predictions = {pep: {} for pep in self.peptides}
+
+    def _refresh_netmhcpan_peptide_maps(self):
+        self.netmhcpan_peptides = replace_uncommon_aas(self.peptides)
+        self.netmhcpan_peptide_to_originals = {}
+        for original_peptide, netmhcpan_peptide in self.netmhcpan_peptides.items():
+            self.netmhcpan_peptide_to_originals.setdefault(netmhcpan_peptide, []).append(original_peptide)
+        self.reverse_lookup = {
+            netmhcpan_peptide: original_peptides[0]
+            for netmhcpan_peptide, original_peptides in self.netmhcpan_peptide_to_originals.items()
+        }
 
     def _format_class_I_alleles(self, alleles: List[str]): #TODO H-2-Db support
         avail_allele_path = Path(__file__).parent.parent/'third_party'/'netMHCpan-4.1'/'Linux_x86_64'/'data'/'MHC_pseudo.dat'
@@ -121,25 +131,25 @@ class NetMHCpanHelper(BasePredictorHelper):
             return
         self.jobs = []
 
-        # split peptide list into chunks
-        if self.netmhcpan_peptides:
-            peptides = np.unique(list(self.netmhcpan_peptides.values()))
-        else:
-            peptides = np.unique(self.peptides)
-        np.random.shuffle(peptides)  # shuffle to speed up
+        if not self.netmhcpan_peptides:
+            self._refresh_netmhcpan_peptide_maps()
 
         job_number = 1
         for allele in self.alleles:
-            keys = [allele + ',' + pep for pep in peptides]
+            peptides = np.array([self.netmhcpan_peptides[pep] for pep in self.peptides])
+            keys = np.array([allele + ',' + pep for pep in peptides])
             db_data, matched_mask = self.try_load_from_db(keys=keys)
             if len(db_data) > 0:
-                for i, pep in enumerate(peptides[matched_mask]):
-                    self.predictions[self.reverse_lookup[pep]][allele] = db_data[i]
-            print(f'Matched {len(db_data)} pMHCs from DB. Predicting on {len(keys) - len(db_data)} remaining pMHCs.')
+                for peptide_idx, value in zip(np.flatnonzero(matched_mask), db_data):
+                    self.predictions[self.peptides[peptide_idx]][allele] = value
+            unmatched_peptides = np.unique(peptides[~matched_mask])
+            print(f'Matched {np.sum(matched_mask)} pMHCs from DB. '
+                  f'Predicting on {len(keys) - np.sum(matched_mask)} remaining pMHCs '
+                  f'({len(unmatched_peptides)} unique pMHCs will be submitted).')
             if len(db_data) == len(keys):
                 continue
 
-            unmatched_peptides = peptides[~matched_mask]
+            np.random.shuffle(unmatched_peptides)  # shuffle to speed up
             if len(unmatched_peptides) > 500:
                 peptide_iter = iter(unmatched_peptides)
                 chunks = list(iter(lambda: tuple(islice(peptide_iter, 500)), ()))
@@ -226,7 +236,8 @@ class NetMHCpanHelper(BasePredictorHelper):
             key = allele + ',' + peptide
             value = {'el_rank': el_rank, 'el_score': el_score, 'aff_rank': aff_rank, 'aff_score': aff_score,
                      'aff_nM': aff_nM, 'binder': binder}
-            self.predictions[self.reverse_lookup[peptide]][allele] = value
+            for original_peptide in self.netmhcpan_peptide_to_originals.get(peptide, [peptide]):
+                self.predictions[original_peptide][allele] = value
             keys.append(key)
             values.append(value)
         return keys, values
