@@ -104,7 +104,7 @@ class CombinedReporter:
                     if protein['protein_name'] not in protein_names:
                         seq_prot_map[sequence].append(deepcopy(protein))
                         protein_names.append(protein['protein_name'])
-        (self.result_folder / 'combined.prot.xml').unlink()
+        # (self.result_folder / 'combined.prot.xml').unlink()
 
         # find the best protein for each sequence
         seq_idx_map = {}
@@ -309,7 +309,7 @@ class CombinedReporter:
         combined_df.to_csv(self.result_folder / f'combined_{group_type}_unfiltered.tsv', sep='\t', index=False)
         if self.combined_high_confidence_sequences is not None:
             combined_len = len(combined_df)
-            combined_df = combined_df[combined_df['sequence'].isin(self.combined_high_confidence_sequences)]
+            combined_df = combined_df[combined_df['Sequence'].isin(self.combined_high_confidence_sequences)]
             print(f'Saving {len(combined_df)} {group_type}s to combined_{group_type}.tsv ({combined_len} before filtering)')
         else:
             print(f'Saving {len(combined_df)} {group_type}s to combined_{group_type}.tsv')
