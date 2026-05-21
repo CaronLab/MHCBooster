@@ -24,3 +24,4 @@ statsmodels==0.14.4
 koinapy==0.0.9
 adjustText
 apsw
+easypqp

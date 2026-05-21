@@ -141,7 +141,7 @@ class NetMHCpanHelper(BasePredictorHelper):
             db_data, matched_mask = self.try_load_from_db(keys=keys)
             if len(db_data) > 0:
                 for peptide_idx, value in zip(np.flatnonzero(matched_mask), db_data):
-                    self.predictions[self.peptides[peptide_idx]][allele] = value
+                    self.predictions[self.peptides[peptide_idx]][allele] = self._cache_value_to_prediction(value)
             unmatched_peptides = np.unique(peptides[~matched_mask])
             print(f'Matched {np.sum(matched_mask)} pMHCs from DB. '
                   f'Predicting on {len(keys) - np.sum(matched_mask)} remaining pMHCs '
@@ -188,8 +188,20 @@ class NetMHCpanHelper(BasePredictorHelper):
             if 'error' in (' '.join(out[-5:])).lower():
                 raise ChildProcessError(f'{job.stdout.decode()}\n\n{job.stderr.decode()}')
 
+    @staticmethod
+    def _cache_value_to_prediction(value):
+        if isinstance(value, dict):
+            return value
+        el_rank, el_score, aff_rank, aff_score, aff_nM, binder = value
+        return {'el_rank': el_rank, 'el_score': el_score, 'aff_rank': aff_rank, 'aff_score': aff_score,
+                'aff_nM': aff_nM, 'binder': binder}
+
+    @staticmethod
+    def _prediction_value_to_cache(value):
+        return (value['el_rank'], value['el_score'], value['aff_rank'], value['aff_score'],
+                value['aff_nM'], value['binder'])
+
     def _parse_netmhc_output(self, stdout: str):
-        lines = stdout.split('\n')
         if self.mhc_class == 'I':
             allele_idx = 1
             peptide_idx = 2
@@ -213,22 +225,22 @@ class NetMHCpanHelper(BasePredictorHelper):
 
         keys = []
         values = []
-        for line in lines:
-            line = line.strip()
-            line = line.split()
-            if not line or line[0] == '#' or not line[0].isnumeric():
+        for line in stdout.splitlines():
+            fields = line.split()
+            if not fields or fields[0] == '#' or not fields[0].isnumeric():
                 continue
-            allele = line[allele_idx].replace('*', '').replace(':', '')
-            peptide = line[peptide_idx]
-            el_rank = float(line[el_rank_idx])
-            el_score = float(line[el_score_idx])
-            aff_rank = float(line[aff_rank_idx])
-            aff_score = float(line[aff_score_idx])
-            aff_nM  = float(line[aff_nM_idx])
 
-            if float(el_rank) <= strong_cutoff:
+            allele = fields[allele_idx].replace('*', '').replace(':', '')
+            peptide = fields[peptide_idx]
+            el_rank = float(fields[el_rank_idx])
+            el_score = float(fields[el_score_idx])
+            aff_rank = float(fields[aff_rank_idx])
+            aff_score = float(fields[aff_score_idx])
+            aff_nM = float(fields[aff_nM_idx])
+
+            if el_rank <= strong_cutoff:
                 binder = 'Strong'
-            elif float(el_rank) <= weak_cutoff:
+            elif el_rank <= weak_cutoff:
                 binder = 'Weak'
             else:
                 binder = 'Non-binder'
@@ -239,7 +251,7 @@ class NetMHCpanHelper(BasePredictorHelper):
             for original_peptide in self.netmhcpan_peptide_to_originals.get(peptide, [peptide]):
                 self.predictions[original_peptide][allele] = value
             keys.append(key)
-            values.append(value)
+            values.append(self._prediction_value_to_cache(value))
         return keys, values
 
 
