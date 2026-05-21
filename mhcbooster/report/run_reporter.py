@@ -1,4 +1,4 @@
-
+import re
 import numpy as np
 import pandas as pd
 import matplotlib.backends.backend_pdf as plt_pdf
@@ -9,7 +9,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.cm import get_cmap
 from mhcbooster.utils.fdr import calculate_qs, calculate_peptide_level_qs, calculate_roc
 from mhcnames import normalize_allele_name
-from pyteomics.mass import calculate_mass
+from pyteomics.mass import calculate_mass, std_aa_mass
 from mhcbooster.utils.constants import PROTON_MASS
 from mhcbooster.utils.peptide import extract_mods, extract_mod_mass_diff
 from mhcbooster.utils.log import read_from_log
@@ -126,6 +126,29 @@ class RunReporter:
 
             for i, psm in self.psm_df.iterrows():
                 sequence = psm['Sequence']
+                modified_sequence = psm['Sequence']
+                modified_mass = calculate_mass(sequence)
+                mod_map = dict()
+                if not pd.isna(psm['Assigned Modifications']) and len(psm['Assigned Modifications']) > 0:
+                    for mod in psm['Assigned Modifications'].split(', '):
+                        if mod.startswith('N-term'):
+                            mass = re.findall(r"\((.*)\)", mod)[0]
+                            modified_mass += float(mass)
+                            mod_map[0] = float(mass) + 1.007825
+                        else:
+                            pos, res, mass = re.match(r"(\d+)([A-Z])\((.*)\)", mod).groups()
+                            modified_mass += float(mass)
+                            mod_map[int(pos)] = float(mass) + std_aa_mass[res]
+                    sorted_idx = np.argsort(-1 * np.array(list(mod_map.keys())))
+                    for j in range(len(mod_map)):
+                        idx = sorted_idx[j]
+                        pos = list(mod_map.keys())[idx]
+                        mod_aa_mass = str(round(mod_map[pos]))
+                        if pos != 0:
+                            modified_sequence = modified_sequence[:pos] + f'[{mod_aa_mass}]' + modified_sequence[pos:]
+                        else:
+                            modified_sequence = f'n[{mod_aa_mass}]' + modified_sequence
+
                 charge = psm['Charge']
                 proteins = [protein for protein in psm['Protein'].split(';') if len(protein.strip()) > 0]
                 score = psm['Score']
@@ -137,8 +160,18 @@ class RunReporter:
                 scan_nrs = spectrum_id.rsplit('.', 3)[-3:-1]
                 pep_xml.write(f'<spectrum_query assumed_charge="{charge}" spectrum="{spectrum_id}" index="{int(idx) + 1}" start_scan="{scan_nrs[0]}" end_scan="{scan_nrs[1]}" retention_time_sec="{rt}" ion_mobility="{im}">\n')
                 pep_xml.write('<search_result>\n')
-                pep_xml.write(
-                    f'<search_hit peptide="{sequence}" massdiff="0" calc_neutral_pep_mass="{calculate_mass(sequence)}" num_tot_proteins="{len(proteins)}" hit_rank="1" protein="{proteins[0]}">\n')
+                pep_xml.write(f'<search_hit peptide="{sequence}" massdiff="0" calc_neutral_pep_mass="{round(modified_mass, 5)}" num_tot_proteins="{len(proteins)}" hit_rank="1" protein="{proteins[0]}">\n')
+
+                if modified_sequence != sequence:
+                    if modified_sequence.startswith('n'):
+                        pep_xml.write(f'<modification_info modified_peptide="{modified_sequence}" mod_nterm_mass="{round(mod_map[0], 5)}">\n')
+                    else:
+                        pep_xml.write(f'<modification_info modified_peptide="{modified_sequence}">\n')
+                    for pos, mass in mod_map.items():
+                        if pos != 0:
+                            pep_xml.write(f'<mod_aminoacid_mass mass="{round(mass, 5)}" position="{pos}"/>\n')
+                    pep_xml.write(f'</modification_info>\n')
+
                 for i in range(1, len(proteins)):
                     pep_xml.write(f'<alternative_protein protein="{proteins[i]}"/>\n')
                 pep_xml.write('<analysis_result analysis="peptideprophet">\n')
@@ -286,8 +319,8 @@ class RunReporter:
 
 
 if __name__ == '__main__':
-    psm_df = pd.read_csv('/mnt/e/mhcb_v2.2_test/JY_Class1_1M_DDA_60min_Slot1-10_1_541_MHCBooster/psm.tsv', sep='\t')
-    run_reporter = RunReporter(report_directory='/mnt/e/mhcb_v2.2_test/JY_Class1_1M_DDA_60min_Slot1-10_1_541_MHCBooster', decoy_prefix='rev_')
+    # psm_df = pd.read_csv('/mnt/e/mhcb_v2.2_test/JY_Class1_1M_DDA_60min_Slot1-10_1_541_MHCBooster/psm.tsv', sep='\t')
+    # run_reporter = RunReporter(report_directory='/mnt/e/mhcb_v2.2_test/JY_Class1_1M_DDA_60min_Slot1-10_1_541_MHCBooster/test', decoy_prefix='rev_')
     # psm_df = pd.read_csv('/mnt/d/data/JY_Fractionation_Replicate_1/mhcbooster_0305/JY_MHC1_T1_F1_iRT_DDA_Slot1-2_1_782_MHCBooster/psm.tsv', sep='\t')
     # run_reporter = RunReporter(report_directory='/mnt/d/data/JY_Fractionation_Replicate_1/mhcbooster_0306/JY_MHC1_T1_F1_iRT_DDA_Slot1-2_1_782_MHCBooster',
     #                            file_name='test', decoy_prefix='rev_')
@@ -295,9 +328,18 @@ if __name__ == '__main__':
     # psm_df['entry_name'] = ''
     # psm_df['protein_description'] = ''
     # psm_df['mapped_protein'] = ''
-    run_reporter.psm_df = psm_df
+    # run_reporter.psm_df = psm_df
+    # run_reporter.generate_pep_xml(fasta_path='fasta_path')
     # run_reporter.add_app_score()
     # run_reporter.infer_protein('/mnt/d/data/Library/2025-02-26-decoys-contam-JY_var_splicing_0226.fasta.fas')
     # run_reporter.generate_psm_report()
-    run_reporter.generate_peptide_report(pep_fdr=0.01, remove_decoy=True, sequential=True, psm_fdr=0.01)
+    # run_reporter.generate_peptide_report(pep_fdr=0.01, remove_decoy=True, sequential=True, psm_fdr=0.01)
     # run_reporter.generate_sequence_report()
+
+    root_path = Path('/mnt/f/paper_data/JY_DDA_HLA-I_dataset/mhcbooster_mhclib')
+    for psm_path in root_path.rglob('psm.tsv'):
+        pepxml_path = psm_path.parent / 'peptide.pep.xml'
+        run_reporter = RunReporter(report_directory=psm_path.parent.absolute(), decoy_prefix='rev_')
+        psm_df = pd.read_csv(psm_path, sep='\t')
+        run_reporter.psm_df = psm_df
+        run_reporter.generate_pep_xml(fasta_path='/mnt/f/paper_data/JY_DDA_HLA-I_dataset/SA1_1_with_decoys.fasta')

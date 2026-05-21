@@ -1,5 +1,6 @@
 import tempfile
 import subprocess
+import shutil
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -359,7 +360,7 @@ class CombinedReporter:
             input_log_path = pepxml_path.parent / 'input_files.txt'
             mzml_path = read_from_log('mzml=', input_log_path)
             assert mzml_path is not None, f'Failed to find mzml file in {input_log_path}'
-            mzml_name = Path(mzml_path).stem.replace('_uncalibrated', '').replace('_calibrated', '')
+            mzml_name = Path(mzml_path).stem.replace('_uncalibrated', '').replace('_calibrated', '').replace('_diatracer', '')
             psms_path = pepxml_path.parent / f'{mzml_name}.psmpkl'
             peaks_path = pepxml_path.parent / f'{mzml_name}.peakpkl'
             psms_paths.append(str(psms_path.resolve()))
@@ -410,21 +411,12 @@ class CombinedReporter:
         df_lib = pd.concat([library_df, frag_df, avg_experimental_rt], axis=1)
         df_psm = pd.read_csv(combined_psm_path, sep='\t', na_values='')
 
-        df_psm['AllMappedProteins'] = df_psm.apply(
-            lambda x: f"{x['Protein']};{x['Mapped Proteins']}" if pd.notna(x['Mapped Proteins']) else x['Protein'],
-            axis=1)
-        t = dict(zip(df_psm['Peptide'], df_psm['AllMappedProteins']))
-        df_lib['AllMappedProteins'] = df_lib['PeptideSequence'].map(t)
-
-        df_psm['AllMappedGenes'] = df_psm.apply(
-            lambda x: f"{x['Gene']};{x['Mapped Genes']}" if pd.notna(x['Mapped Genes']) else x['Gene'], axis=1)
-        t = dict(zip(df_psm['Peptide'], df_psm['AllMappedGenes']))
-        df_lib['AllMappedGenes'] = df_lib['PeptideSequence'].map(t)
-
-        tt = df_psm.apply(lambda x: 1 if pd.isna(x['Mapped Genes']) else 0, axis=1)
-        ttt = dict(zip(df_psm['Peptide'], tt))
-
-        df_lib['Proteotypic'] = df_lib['PeptideSequence'].map(ttt)
+        annotation_maps = self._build_library_annotation_maps(df_psm)
+        df_lib['ProteinId'] = df_lib['ProteinId'].fillna(df_lib['PeptideSequence'].map(annotation_maps['ProteinId']))
+        df_lib['GeneName'] = df_lib['GeneName'].fillna(df_lib['PeptideSequence'].map(annotation_maps['GeneName']))
+        df_lib['AllMappedProteins'] = df_lib['PeptideSequence'].map(annotation_maps['AllMappedProteins'])
+        df_lib['AllMappedGenes'] = df_lib['PeptideSequence'].map(annotation_maps['AllMappedGenes'])
+        df_lib['Proteotypic'] = df_lib['PeptideSequence'].map(annotation_maps['Proteotypic'])
         df_lib['Proteotypic'] = df_lib['Proteotypic'].fillna(0)
         df_lib['Proteotypic'] = df_lib['Proteotypic'].astype(int)
 
@@ -439,6 +431,102 @@ class CombinedReporter:
             Path(path).unlink()
         for path in self.result_folder.rglob('*_run_peaks.tsv'):
             path.unlink()
+
+    @staticmethod
+    def _build_library_annotation_maps(df_psm: pd.DataFrame):
+        required_cols = ['Sequence', 'Protein', 'Protein ID', 'Gene', 'Mapped Proteins', 'Mapped Genes']
+        missing_cols = [col for col in required_cols if col not in df_psm.columns]
+        if len(missing_cols) > 0:
+            raise KeyError(f'Missing required columns in combined_psm.tsv: {missing_cols}')
+
+        def join_unique(values):
+            unique_values = []
+            seen_values = set()
+            for value in values:
+                if pd.isna(value):
+                    continue
+                for item in str(value).replace(',', ';').split(';'):
+                    item = item.strip()
+                    if len(item) == 0 or item in seen_values:
+                        continue
+                    unique_values.append(item)
+                    seen_values.add(item)
+            return ';'.join(unique_values) if len(unique_values) > 0 else np.nan
+
+        all_mapped_proteins = df_psm['Protein'].copy()
+        mask = df_psm['Mapped Proteins'].notna()
+        all_mapped_proteins.loc[mask] = df_psm.loc[mask, ['Protein', 'Mapped Proteins']].apply(join_unique, axis=1)
+
+        all_mapped_genes = df_psm['Gene'].copy()
+        mask = df_psm['Mapped Genes'].notna()
+        all_mapped_genes.loc[mask] = df_psm.loc[mask, ['Gene', 'Mapped Genes']].apply(join_unique, axis=1)
+
+        annotation_df = pd.DataFrame({
+            'Sequence': df_psm['Sequence'],
+            'ProteinId': df_psm['Protein ID'],
+            'GeneName': df_psm['Gene'],
+            'AllMappedProteins': all_mapped_proteins,
+            'AllMappedGenes': all_mapped_genes,
+            'Proteotypic': df_psm['Mapped Genes'].isna().astype(int)
+        })
+        annotation_df = annotation_df.dropna(subset=['Sequence']).drop_duplicates('Sequence', keep='last')
+        return {
+            'ProteinId': dict(zip(annotation_df['Sequence'], annotation_df['ProteinId'])),
+            'GeneName': dict(zip(annotation_df['Sequence'], annotation_df['GeneName'])),
+            'AllMappedProteins': dict(zip(annotation_df['Sequence'], annotation_df['AllMappedProteins'])),
+            'AllMappedGenes': dict(zip(annotation_df['Sequence'], annotation_df['AllMappedGenes'])),
+            'Proteotypic': dict(zip(annotation_df['Sequence'], annotation_df['Proteotypic']))
+        }
+
+    @staticmethod
+    def patch_library_protein_annotations(result_folder, library_name='library.tsv',
+                                          combined_psm_name='combined_psm.tsv', backup=True):
+        result_folder = Path(result_folder)
+        library_path = result_folder / library_name
+        combined_psm_path = result_folder / combined_psm_name
+        if not library_path.exists():
+            raise FileNotFoundError(f'Cannot find library file: {library_path}')
+        if not combined_psm_path.exists():
+            raise FileNotFoundError(f'Cannot find combined PSM file: {combined_psm_path}')
+
+        print(f'Patching protein annotations in {library_path}')
+        psm_cols = ['Sequence', 'Protein', 'Protein ID', 'Gene', 'Mapped Proteins', 'Mapped Genes']
+        df_psm = pd.read_csv(combined_psm_path, sep='\t', na_values='', usecols=psm_cols)
+        annotation_maps = CombinedReporter._build_library_annotation_maps(df_psm)
+        df_lib = pd.read_csv(library_path, sep='\t', na_values='')
+
+        missing_before = df_lib['AllMappedProteins'].isna().sum() if 'AllMappedProteins' in df_lib.columns else len(df_lib)
+        mapped_sequences = df_lib['PeptideSequence'].map(annotation_maps['AllMappedProteins']).notna().sum()
+
+        for col in ['ProteinId', 'GeneName', 'AllMappedProteins', 'AllMappedGenes', 'Proteotypic']:
+            if col not in df_lib.columns:
+                df_lib[col] = np.nan
+
+        protein_id_map = df_lib['PeptideSequence'].map(annotation_maps['ProteinId'])
+        gene_name_map = df_lib['PeptideSequence'].map(annotation_maps['GeneName'])
+        all_protein_map = df_lib['PeptideSequence'].map(annotation_maps['AllMappedProteins'])
+        all_gene_map = df_lib['PeptideSequence'].map(annotation_maps['AllMappedGenes'])
+        proteotypic_map = df_lib['PeptideSequence'].map(annotation_maps['Proteotypic'])
+
+        df_lib['ProteinId'] = df_lib['ProteinId'].fillna(protein_id_map)
+        df_lib['GeneName'] = df_lib['GeneName'].fillna(gene_name_map)
+        df_lib['AllMappedProteins'] = all_protein_map.where(all_protein_map.notna(), df_lib['AllMappedProteins'])
+        df_lib['AllMappedGenes'] = all_gene_map.where(all_gene_map.notna(), df_lib['AllMappedGenes'])
+        has_annotation = df_lib['AllMappedProteins'].notna()
+        df_lib.loc[has_annotation & proteotypic_map.notna(), 'Proteotypic'] = proteotypic_map[has_annotation & proteotypic_map.notna()]
+        df_lib['Proteotypic'] = df_lib['Proteotypic'].fillna(0).astype(int)
+
+        missing_after = df_lib['AllMappedProteins'].isna().sum()
+        tmp_path = library_path.with_suffix(library_path.suffix + '.tmp')
+        df_lib.to_csv(tmp_path, sep='\t', index=False)
+        if backup:
+            backup_path = library_path.with_suffix(library_path.suffix + '.bak')
+            if not backup_path.exists():
+                shutil.copy2(library_path, backup_path)
+                print(f'Backed up original library to {backup_path}')
+        tmp_path.replace(library_path)
+        print(f'Mapped library rows by PeptideSequence: {mapped_sequences}')
+        print(f'Missing AllMappedProteins before: {missing_before}; after: {missing_after}')
 
 
     def add_ionquant_intensity(self):
@@ -562,12 +650,25 @@ class CombinedReporter:
 
 
 if __name__ == '__main__':
-    combined_reporter = CombinedReporter(result_folder='/mnt/e/data/JY_HLA-II/mhcbooster_comb',
-                                         fasta_path='/mnt/d/data/JY_1_10_25M/2024-09-03-decoys-contam-Human_EBV_GD1_B95.fasta',
+    patch_existing_library = True
+    if patch_existing_library:
+        CombinedReporter.patch_library_protein_annotations(
+            result_folder='/mnt/f/paper_data/JY_DDA_HLA-I_dataset/mhcbooster_mhclib',
+            library_name='library.tsv',
+            combined_psm_name='combined_psm.tsv',
+            backup=True
+        )
+        raise SystemExit
+
+    combined_reporter = CombinedReporter(result_folder='/mnt/f/paper_data/JY_DDA_HLA-I_dataset/mhcbooster_mhclib',
+                                         fasta_path='/mnt/f/paper_data/JY_DDA_HLA-I_dataset/SA1_1_with_decoys.fasta',
                                          infer_protein=True,
                                          remove_contaminant=False,
-                                         control_combine_fdr=False)
+                                         control_combine_fdr=True,
+                                         quant=True,
+                                         build_library=True)
     combined_reporter.run()
+    # combined_reporter.build_easypqp_library()
     # combined_reporter.get_philosopher_reference()
     # combined_reporter.combine_result('peptide.tsv')
     # combined_reporter.combine_result('sequence.tsv')
